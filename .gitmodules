@@ -1,0 +1,3 @@
+[submodule "vendor/webapps"]
+	path = vendor/webapps
+	url = https://github.com/neurodesk/webapps.git

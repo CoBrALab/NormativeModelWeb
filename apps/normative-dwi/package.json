@@ -1,0 +1,28 @@
+{
+  "name": "normative-dwi",
+  "version": "0.0.20261018",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node ../../scripts/theme-app-dist.mjs --app normative-dwi",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js && tsc --noEmit",
+    "test:e2e": "playwright test",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@neurodesk/webapp-components": "link:../../vendor/webapps/packages/components",
+    "@niivue/niivue": "1.0.0-rc.14",
+    "zarrita": "^0.7.3",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@webgpu/types": "^0.1.60",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2"
+  },
+  "license": "NOASSERTION",
+  "description": "Voxelwise normative z-score maps for DTI and NODDI microstructure, computed in the browser."
+}

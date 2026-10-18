@@ -1,0 +1,94 @@
+diff --git a/registry/app-information.yml b/registry/app-information.yml
+index 8ef10a13..2ac2d169 100644
+--- a/registry/app-information.yml
++++ b/registry/app-information.yml
+@@ -1438,3 +1438,12 @@ apps:
+         title: Prais-Winsten AR(1) prewhitening
+         reference: "Prais SJ, Winsten CB. Trend Estimators and Serial Correlation. Cowles Commission Discussion Paper, Statistics No. 383. 1954."
+         url: https://cowles.yale.edu/sites/default/files/2023-05/s-0383.pdf
++
++  normative-dwi:
++    packages:
++      - { name: NiiVue, url: https://github.com/niivue/niivue, role: image viewer }
++    citations:
++      - group: Visualization
++        title: NiiVue
++        reference: "NiiVue Contributors. NiiVue: a WebGL2 medical image viewer [Computer software]."
++        url: https://github.com/niivue/niivue
+diff --git a/registry/apps.yml b/registry/apps.yml
+index 17265079..1e56e7ad 100644
+--- a/registry/apps.yml
++++ b/registry/apps.yml
+@@ -729,3 +729,23 @@ apps:
+       browser_test: true
+       hardware_gpu: true
+       release: false
++  - id: normative-dwi
++    path: normative-dwi
++    title: Normative DWI
++    description: Normative z-score maps for DTI and NODDI.
++    categories: [diffusion-imaging]
++    keywords: [normative model, z-score, DTI, NODDI, diffusion, UK Biobank, PCNtoolkit, Zarr]
++    legacy_domain: null
++    runtime: vite-webgpu
++    model_manifest: null
++    asset_manifest_schema: null
++    source: neurodesk/webapps@local
++    license: NOASSERTION
++    maintainers: [neurodesk]
++    support_status: experimental
++    shell: imaging-workspace
++    ci:
++      toolchains: [node]
++      shared_runtime: false
++      browser_test: true
++      release: false
+diff --git a/registry/offline-assets.lock.json b/registry/offline-assets.lock.json
+index d69cef7e..72efe465 100644
+--- a/registry/offline-assets.lock.json
++++ b/registry/offline-assets.lock.json
+@@ -4104,6 +4104,9 @@
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/3390ec024ac302bde8f365a4f6169b4a1580538f/fastprep/templates/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii.gz",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/3390ec024ac302bde8f365a4f6169b4a1580538f/fastprep/templates/tpl-MNI152NLin2009cAsym/tpl-MNI152NLin2009cAsym_res-01_desc-brain_mask.nii.gz",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/88c3dd6b9aac13429f760d9b0b48249040d3ee5f/synthsr/models/synthsr-v2.onnx"
++    ],
++    "normative-dwi": [
++      "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/356a4adbce52cf9052d61ef90b14ba263e7c25e9/synthseg/validation/T1_head.nii.gz"
+     ]
+   }
+ }
+diff --git a/registry/offline-assets.sources.json b/registry/offline-assets.sources.json
+index c0da4821..0488ad80 100644
+--- a/registry/offline-assets.sources.json
++++ b/registry/offline-assets.sources.json
+@@ -4221,6 +4221,12 @@
+         "bytes": 52980984,
+         "kind": "model"
+       }
++    ],
++    "normative-dwi": [
++      {
++        "url": "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/356a4adbce52cf9052d61ef90b14ba263e7c25e9/synthseg/validation/T1_head.nii.gz",
++        "kind": "example"
++      }
+     ]
+   },
+   "exclusions": [],
+diff --git a/registry/standalone.json b/registry/standalone.json
+index 9b1f704e..8d556c52 100644
+--- a/registry/standalone.json
++++ b/registry/standalone.json
+@@ -1537,6 +1537,13 @@
+       "assets": [],
+       "downloads": [],
+       "containers": []
++    },
++    "normative-dwi": {
++      "desktop": true,
++      "profile": "interactive",
++      "assets": [],
++      "downloads": [],
++      "containers": []
+     }
+   }
+ }

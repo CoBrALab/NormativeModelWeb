@@ -1,0 +1,10 @@
+# The app is developed here and upstreamed to neurodesk/webapps (vendored as a
+# submodule). Shared packages are linked from the submodule, whose own
+# `pnpm install` provides their dependencies: run `pnpm link-upstream` first.
+packages:
+  - "apps/*"
+allowBuilds:
+  cbor-extract: false
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@niivue/niivue@1.0.0-rc.14'
