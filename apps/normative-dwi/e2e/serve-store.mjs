@@ -5,18 +5,31 @@
 //   node apps/normative-dwi/e2e/serve-store.mjs <store-dir> [port]
 import { createReadStream, statSync } from "node:fs";
 import { createServer } from "node:http";
-import { join, normalize, sep } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
+
+/** The file a request path names inside `base`, or null when it escapes it. */
+export function storePath(base, pathname) {
+  const path = resolve(base, `.${pathname}`);
+  const rel = relative(base, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)) ? path : null;
+}
 
 export function serveStore(root, port = 0) {
-  const base = normalize(root);
+  const base = resolve(root);
   const server = createServer((request, response) => {
     response.setHeader("Access-Control-Allow-Origin", "*");
     response.setHeader("Access-Control-Allow-Headers", "Range");
     response.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range");
     response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     if (request.method === "OPTIONS") return response.writeHead(204).end();
-    const path = normalize(join(base, decodeURIComponent(new URL(request.url, "http://x").pathname)));
-    const stat = path.startsWith(base + sep) || path === base ? statSync(path, { throwIfNoEntry: false }) : undefined;
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(request.url, "http://x").pathname);
+    } catch {
+      return response.writeHead(400).end();
+    }
+    const path = storePath(base, pathname);
+    const stat = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
     if (!stat?.isFile()) return response.writeHead(404).end();
     const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
     let start = 0;

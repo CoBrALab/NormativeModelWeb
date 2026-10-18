@@ -1,6 +1,6 @@
 // Normative DWI: maps in, z-maps out. The interface comes from the shared
 // workspace vocabulary; the science is in model-store/, predictor/ and
-// subject-image/ (see GLOSSARY.md and docs/adr/).
+// subject-image/ (see docs/GLOSSARY.md and docs/adr/).
 import "@neurodesk/webapp-components/styles/imaging-workspace.css";
 import { mountImagingWorkspace } from "@neurodesk/webapp-components/core/mount-imaging-workspace";
 import {

@@ -1,6 +1,9 @@
-# CPU float64 is the reference predictor; WebGPU float32 is checked against it
+# ADR-0001: CPU float64 is the reference predictor; WebGPU float32 is checked against it
 
-The predictor has two adapters. The CPU adapter computes in float64 and must reproduce PCNtoolkit's z-scores to |Δz| < 1e-6 on the parity fixtures (`apps/normative-dwi/test/fixtures`, made locally by `tools/make_fixtures.py` from the original model zips; not committed, as they hold UK Biobank-derived parameters). Both adapters clamp age to the voxel's training range before scoring, as proc_nm does; native PCNtoolkit would extrapolate the B-spline, so the fixtures check proc_nm's convention on top of PCNtoolkit. WebGPU has no float64, so the GPU adapter runs the same algorithm in float32 and is held to a looser tolerance against the CPU adapter, not against Python. The GPU is the default when the browser has it; the CPU adapter stays as the fallback (also when the GPU fails or its device is lost mid-run) and as the scientific reference, and users can force it under Advanced settings.
+- Status: accepted
+- Date: 2026-10-18
+
+The predictor has two adapters. The CPU adapter computes in float64 and must reproduce PCNtoolkit's z-scores to |Δz| < 1e-6 on the parity fixtures (`test/fixtures`, made locally by `tools/make_fixtures.py` from the original model zips; not committed, as they hold UK Biobank-derived parameters). Both adapters clamp age to the voxel's training range before scoring, as proc_nm does; native PCNtoolkit would extrapolate the B-spline, so the fixtures check proc_nm's convention on top of PCNtoolkit. WebGPU has no float64, so the GPU adapter runs the same algorithm in float32 and is held to a looser tolerance against the CPU adapter, not against Python. The GPU is the default when the browser has it; the CPU adapter stays as the fallback (also when the GPU fails or its device is lost mid-run) and as the scientific reference, and users can force it under Advanced settings.
 
 ## Considered options
 

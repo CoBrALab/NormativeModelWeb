@@ -1,5 +1,5 @@
 // Domain types shared by the store reader, the predictors and the image I/O.
-// Vocabulary: see GLOSSARY.md at the repository root.
+// Vocabulary: see docs/GLOSSARY.md.
 
 export const MARKERS = ["FA", "MD", "ICVF", "ISOVF", "OD"] as const;
 export type Marker = (typeof MARKERS)[number];

@@ -1,7 +1,7 @@
 """Parity fixtures for the browser predictor, with PCNtoolkit as the oracle.
 
 For a sample of voxels per marker this writes, to
-apps/normative-dwi/test/fixtures/predict-<MARKER>.json:
+test/fixtures/predict-<MARKER>.json (in this app):
 
   - the voxel's parameters exactly as the browser reads them from the nmzarr
     store (the predict arrays only), and
@@ -26,7 +26,7 @@ cleared for redistribution. The output directory is gitignored: never commit it.
 
 Usage (reference env: /scratch/parent41/voxel_nm/.venv_pcnGabe); the
 fixtures used for the documented results were made with:
-  python -I tools/make_fixtures.py \
+  python -I apps/normative-dwi/tools/make_fixtures.py \
     --store /scratch/parent41/proc_nm/opt_inference/stores/ukb_blr_agesex.zarr \
     --zips /scratch/parent41/voxel_nm/Analyses/norm_models_BLR_agesex/results/models_zip
 """
@@ -136,7 +136,7 @@ def main():
     ap.add_argument("--store", type=Path, required=True)
     ap.add_argument("--zips", type=Path, required=True)
     ap.add_argument("--out", type=Path,
-                    default=Path(__file__).resolve().parent.parent / "apps/normative-dwi/test/fixtures")
+                    default=Path(__file__).resolve().parent.parent / "test/fixtures")
     ap.add_argument("--per-marker", type=int, default=40)
     ap.add_argument("--seed", type=int, default=20261018)
     ap.add_argument("--markers", nargs="*", help="default: every marker in the store")

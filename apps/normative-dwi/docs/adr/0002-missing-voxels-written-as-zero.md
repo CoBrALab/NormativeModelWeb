@@ -1,3 +1,6 @@
-# Unmodelled and missing voxels are written as 0 in the z-map file
+# ADR-0002: Unmodelled and missing voxels are written as 0 in the z-map file
+
+- Status: accepted
+- Date: 2026-10-18
 
 A downloaded z-map holds 0 wherever the voxel is outside the mask, has no voxel model, or the input map is 0 (proc_nm's "missing") or not finite. We chose 0 over NaN because common NIfTI viewers and downstream tools handle NaN poorly, even though 0 is also a legitimate z-score. The in-app viewer does not show those voxels as z = 0: it draws a display-only copy in which unscored voxels sit far below the colour range and map to a transparent colormap entry. This differs from proc_nm's z-matrix TSVs (empty field) and matches its z-score volumes (NaN → 0), except that we do not clip z to ±100.

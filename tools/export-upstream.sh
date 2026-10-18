@@ -20,7 +20,7 @@ for app in "$root"/apps/*/; do
   mkdir -p "$target/apps/$id"
   # Never export local data: the parity fixtures hold UK Biobank-derived parameters.
   (cd "$app" && tar --exclude=node_modules --exclude=dist --exclude=test-results \
-    --exclude=playwright-report --exclude=test/fixtures -cf - .) | tar -xf - -C "$target/apps/$id"
+    --exclude=playwright-report --exclude=test/fixtures --exclude=__pycache__ -cf - .) | tar -xf - -C "$target/apps/$id"
 done
 (cd "$target" && pnpm install --no-frozen-lockfile)
 echo "Exported to $target. Lockfile changes: git -C $target diff --stat pnpm-lock.yaml"

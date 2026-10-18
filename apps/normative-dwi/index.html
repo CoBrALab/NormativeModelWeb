@@ -43,7 +43,7 @@
             <div class="nd-section-content">
               <div class="nd-field">
                 <label for="compute">Compute
-                  <span class="nd-info-icon" tabindex="0" aria-label="About compute">i<span class="nd-info-tooltip">CPU computes in double precision and is the reference. GPU uses WebGPU in single precision and agrees with the CPU to about 1e-4.</span></span>
+                  <span class="nd-info-icon" tabindex="0" aria-label="About compute">i<span class="nd-info-tooltip">CPU computes in double precision and is the reference. GPU uses WebGPU in single precision; tested to agree with the CPU within 1e-3 of z.</span></span>
                 </label>
                 <select id="compute">
                   <option value="gpu">GPU when available</option>
@@ -102,7 +102,7 @@
       <p><strong>Inputs.</strong> Maps must already be registered to that grid, ANLM-denoised and masked as proc_nm's resampling step does, and harmonised to UK Biobank. The app checks the grid and refuses other images; it cannot check harmonisation. Unharmonised data will show site effects as deviations.</p>
       <p><strong>Ages.</strong> The models were trained on ages of about 45 to 81. Ages outside a voxel's training range are scored at its nearest end, and the status line says so.</p>
       <p><strong>Output.</strong> One z-map per input map, on the input's grid, marked as a z-score image (NIfTI intent 5). Voxels without a model, or where the input is 0 or not a number, are written as 0; the viewer leaves them transparent and its readout says "not scored".</p>
-      <p><strong>Accuracy.</strong> The CPU path reproduces PCNtoolkit's z-scores to better than 1e-6, with ages clamped to the training range as proc_nm does (PCNtoolkit itself would extrapolate). The GPU path computes in single precision and agrees with the CPU to about 1e-4; if the GPU fails, scoring continues on the CPU.</p>
+      <p><strong>Accuracy.</strong> The CPU path reproduces PCNtoolkit's z-scores to better than 1e-6, with ages clamped to the training range as proc_nm does (PCNtoolkit itself would extrapolate). The GPU path computes in single precision and is tested to agree with the CPU within 1e-3 (relative to |z|, or absolute below 1); the largest difference measured on a real subject was 9e-5, with a software GPU (SwiftShader). If the GPU fails, scoring continues on the CPU.</p>
     </template>
     <template id="privacyContent">
       <p>Your maps are processed locally in this browser and are never uploaded. The only network traffic is downloading the model store (and the example, if you choose one). A store at a pinned, immutable address is cached in this browser for later visits; Advanced settings has a button to clear that cache.</p>

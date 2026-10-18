@@ -11,7 +11,7 @@ The store derives from UK Biobank data: publish only once
 redistribution is cleared.
 
 Usage (reference env: /scratch/parent41/voxel_nm/.venv_pcnGabe):
-  python -I tools/prepare_store_release.py --store STORE --out OUT [--base-url URL]
+  python -I apps/normative-dwi/tools/prepare_store_release.py --store STORE --out OUT [--base-url URL]
 """
 
 import argparse
@@ -22,7 +22,8 @@ from pathlib import Path
 
 import zarr
 
-ROOT = Path(__file__).resolve().parent.parent
+# apps/normative-dwi/tools/ -> repository root, where models/ lives (here and upstream).
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def sha256(path):

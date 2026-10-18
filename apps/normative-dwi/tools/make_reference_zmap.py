@@ -15,7 +15,7 @@ fixtures; the end-to-end test therefore checks the browser's image I/O and
 voxel mapping on a real brain. Subject data: never commit the output.
 
 Usage (reference env: /scratch/parent41/voxel_nm/.venv_pcnGabe):
-  python -I tools/make_reference_zmap.py --store STORE --maps DIR --age 72 --sex female --out OUT
+  python -I apps/normative-dwi/tools/make_reference_zmap.py --store STORE --maps DIR --age 72 --sex female --out OUT
 """
 
 import argparse
