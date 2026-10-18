@@ -5,6 +5,7 @@
 // [x, 1]; cubic B-spline mean basis; one-hot batch-effect intercepts):
 //
 //   x   = (age − in_m) / in_s                        age clamped to the training range
+//                                                    (proc_nm's convention, not native PCNtoolkit)
 //   Φ   = [B(x), 1, onehot(be_map[sex])]             Φv = [x, 1]
 //   b   = exp(hyp3),  a = −hyp2·b,  β = exp(Φv·hyp[0:2]) / b²
 //   μ   = Φ·m,        s² = 1/β + Φ A⁻¹ Φᵀ            A = posterior precision
@@ -67,11 +68,33 @@ export function sexColumn(params: Pick<MarkerParams, "beLevelColumns">, covariat
   return column;
 }
 
+/** Voxels scored between checks for cancellation in zmapCpuAsync (~5 ms of work). */
+const BLOCK = 16384;
+
 /**
  * Z-scores of `y` (one value per store voxel) for one subject.
- * A voxel is valid when it is modelled and y is finite and nonzero (0 = missing).
+ * A voxel is valid when it is modelled, y is finite and nonzero (0 = missing),
+ * and its z-score is finite (a non-positive-definite A or variance gives none).
  */
 export function zmapCpu(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>): ZmapResult {
+  const scorer = createScorer(params, covariates, y);
+  scorer.score(0, params.nVox);
+  return scorer.result();
+}
+
+/** zmapCpu in blocks, yielding to the event loop between them so `signal` can cancel. */
+export async function zmapCpuAsync(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal): Promise<ZmapResult> {
+  const scorer = createScorer(params, covariates, y);
+  for (let start = 0; start < params.nVox; start += BLOCK) {
+    signal?.throwIfAborted();
+    scorer.score(start, Math.min(start + BLOCK, params.nVox));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  signal?.throwIfAborted();
+  return scorer.result();
+}
+
+function createScorer(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>) {
   const { nVox, nKnots } = params;
   if (y.length !== nVox) throw new Error(`Expected ${nVox} values, got ${y.length}`);
   const D = designSize(params);
@@ -89,49 +112,56 @@ export function zmapCpu(params: MarkerParams, covariates: Covariates, y: ArrayLi
   const L = new Float64Array(D * D);
   let clamped = 0;
 
-  for (let v = 0; v < nVox; v++) {
-    const value = y[v];
-    if (!params.hasModel[v] || value === 0 || !Number.isFinite(value)) continue;
+  function score(from: number, to: number) {
+    for (let v = from; v < to; v++) {
+      const value = y[v];
+      if (!params.hasModel[v] || value === 0 || !Number.isFinite(value)) continue;
 
-    const lo = params.covRanges[2 * v];
-    const hi = params.covRanges[2 * v + 1];
-    let age = covariates.age;
-    if (age < lo) age = lo;
-    else if (age > hi) age = hi;
-    if (age !== covariates.age) clamped++;
-    const x = (age - params.inscaler[4 * v]) / params.inscaler[4 * v + 1];
+      // proc_nm convention: ages outside the training range are scored at its
+      // nearest end. Native PCNtoolkit would extrapolate the B-spline instead.
+      const lo = params.covRanges[2 * v];
+      const hi = params.covRanges[2 * v + 1];
+      let age = covariates.age;
+      if (age < lo) age = lo;
+      else if (age > hi) age = hi;
+      const x = (age - params.inscaler[4 * v]) / params.inscaler[4 * v + 1];
 
-    // Design row Φ.
-    phi.fill(0);
-    const first = bsplineBasis(params.meanKnots, v * nKnots, nKnots, x, basis, left, right);
-    for (let r = 0; r <= DEGREE; r++) phi[first + r] = basis[r];
-    phi[nBasis] = 1;
-    phi[nBasis + 1 + params.beMap[v * nBe + column]] = 1;
+      // Design row Φ.
+      phi.fill(0);
+      const first = bsplineBasis(params.meanKnots, v * nKnots, nKnots, x, basis, left, right);
+      for (let r = 0; r <= DEGREE; r++) phi[first + r] = basis[r];
+      phi[nBasis] = 1;
+      phi[nBasis + 1 + params.beMap[v * nBe + column]] = 1;
 
-    // μ = Φ·m
-    let mu = 0;
-    for (let d = 0; d < D; d++) mu += phi[d] * params.m[v * D + d];
+      // μ = Φ·m
+      let mu = 0;
+      for (let d = 0; d < D; d++) mu += phi[d] * params.m[v * D + d];
 
-    // Φ A⁻¹ Φᵀ via Cholesky A = L Lᵀ and forward substitution L w = Φ.
-    choleskyLower(params.aTriu, v * nTri, D, L);
-    let quad = 0;
-    for (let r = 0; r < D; r++) {
-      let s = phi[r];
-      for (let k = 0; k < r; k++) s -= L[r * D + k] * phi[k];
-      const w = s / L[r * D + r];
-      phi[r] = w; // reuse Φ storage for w; Φ[r] is no longer needed
-      quad += w * w;
+      // Φ A⁻¹ Φᵀ via Cholesky A = L Lᵀ and forward substitution L w = Φ.
+      choleskyLower(params.aTriu, v * nTri, D, L);
+      let quad = 0;
+      for (let r = 0; r < D; r++) {
+        let s = phi[r];
+        for (let k = 0; k < r; k++) s -= L[r * D + k] * phi[k];
+        const w = s / L[r * D + r];
+        phi[r] = w; // reuse Φ storage for w; Φ[r] is no longer needed
+        quad += w * w;
+      }
+
+      const h = 5 * v;
+      const b = Math.exp(params.hyp[h + 3]);
+      const a = -params.hyp[h + 2] * b;
+      const beta = Math.exp(x * params.hyp[h] + params.hyp[h + 1]) / (b * b);
+      const s2 = 1 / beta + quad;
+
+      const ys = (value - params.outscaler[4 * v]) / params.outscaler[4 * v + 1];
+      const zv = (Math.sinh(b * Math.asinh(ys) - a) - mu) / Math.sqrt(s2);
+      if (!Number.isFinite(zv)) continue;
+      z[v] = zv;
+      valid[v] = 1;
+      if (age !== covariates.age) clamped++;
     }
-
-    const h = 5 * v;
-    const b = Math.exp(params.hyp[h + 3]);
-    const a = -params.hyp[h + 2] * b;
-    const beta = Math.exp(x * params.hyp[h] + params.hyp[h + 1]) / (b * b);
-    const s2 = 1 / beta + quad;
-
-    const ys = (value - params.outscaler[4 * v]) / params.outscaler[4 * v + 1];
-    z[v] = (Math.sinh(b * Math.asinh(ys) - a) - mu) / Math.sqrt(s2);
-    valid[v] = 1;
   }
-  return { z, valid, clamped };
+
+  return { score, result: (): ZmapResult => ({ z, valid, clamped }) };
 }

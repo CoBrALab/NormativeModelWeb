@@ -15,10 +15,11 @@ import {
 } from "@neurodesk/webapp-components/ui";
 import { downloadFile } from "@neurodesk/webapp-components/file-io/download";
 import { registerAppAutomation } from "@neurodesk/webapp-components/automation";
-import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, clampingNotice, guessMarker, isMarker, trainingRange, zmapFileName } from "./config.ts";
+import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, clampingNotice, guessMarker, isMarker, parseCovariates, trainingRange, zmapFileName } from "./config.ts";
 import { MARKERS, type Covariates, type Marker } from "./model.ts";
 import { openModelStore, type ModelStore, type StoreSource } from "./model-store/index.ts";
 import { filesDirectory } from "./model-store/directory-store.ts";
+import { clearModelCache } from "./model-store/persistent-cache.ts";
 import { createPredictor, type Predictor, type PredictorKind } from "./predictor/index.ts";
 import { displayNifti, gatherToStore, gridMapping, loadSubjectMap, scatterToNifti, type SubjectMap } from "./subject-image/index.ts";
 import { createZViewer } from "./viewer.ts";
@@ -59,12 +60,17 @@ interface InputMap {
   file: File;
   map: SubjectMap;
   marker: Marker | null;
+  /** Why the map cannot be scored against the open store, if it cannot. */
+  problem?: string;
 }
 interface ZmapOutput {
   [key: string]: unknown;
   description: string;
   file: File;
   display: File;
+  /** True z on the map's grid (NaN where not scored), for the viewer's readout. */
+  values: Float32Array;
+  dims: [number, number, number];
 }
 
 let inputs: InputMap[] = [];
@@ -74,20 +80,24 @@ let storeSource: StoreSource | null = DEFAULT_STORE_URL ? { kind: "url", url: DE
 let running: AbortController | null = null;
 
 function status(message: string, error = false) {
-  $("statusText").textContent = message.length <= 90 ? message : `${message.slice(0, 88).trimEnd()}…`;
+  $("statusText").textContent = message;
   $("statusText").classList.toggle("error", error);
   log.log(message, error ? "error" : "info");
 }
 
-function covariates(): Covariates | null {
-  const age = Number.parseFloat(($("age") as HTMLInputElement).value);
-  const sex = ($("sex") as HTMLSelectElement).value;
-  return Number.isFinite(age) && age > 0 && (sex === "female" || sex === "male") ? { age, sex } : null;
-}
+const uiCovariates = () => parseCovariates(($("age") as HTMLInputElement).value, ($("sex") as HTMLSelectElement).value);
 
 function refreshActions() {
-  const ready = !running && storeSource && covariates() && inputs.some((i) => i.marker);
+  const ready = !running && storeSource && uiCovariates() && inputs.some((i) => i.marker);
   ($("runButton") as HTMLButtonElement).disabled = !ready;
+}
+
+/** While scoring, nothing that feeds the run may change. */
+function setBusy(busy: boolean) {
+  for (const id of ["imageInput", "storeFolder", "storeUrl", "age", "sex", "compute", "clearCacheButton"]) ($(id) as HTMLInputElement).disabled = busy;
+  for (const select of $("mapList").querySelectorAll("select")) select.disabled = busy;
+  exampleControl.setDisabled(busy);
+  refreshActions();
 }
 
 const results = createResultList<ZmapOutput>({
@@ -99,9 +109,13 @@ const results = createResultList<ZmapOutput>({
 async function showOutput(marker: string) {
   const output = outputs[marker];
   if (!output) return;
-  await viewer.show(output.display);
+  const [nx, ny] = output.dims;
+  await viewer.show(output.display, ([i, j, k]) => {
+    const value = output.values[i + nx * (j + ny * k)];
+    return Number.isFinite(value) ? `${marker} z = ${value.toFixed(2)}` : `${marker} not scored`;
+  });
   $("emptyState").hidden = true;
-  status(`Showing ${marker} z-map · colour saturates at |z| = 3`);
+  status(`Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`);
 }
 
 function renderMapList() {
@@ -117,55 +131,120 @@ function renderMapList() {
       select.id = `marker-${index}`;
       select.append(new Option("Not used", ""), ...MARKERS.map((m) => new Option(m, m)));
       select.value = input.marker ?? "";
+      select.disabled = Boolean(running);
       select.onchange = () => {
-        input.marker = isMarker(select.value) ? select.value : null;
+        const marker = isMarker(select.value) ? select.value : null;
+        // One map per marker: choosing a marker takes it from any other map.
+        for (const other of inputs) if (other !== input && marker && other.marker === marker) other.marker = null;
+        input.marker = marker;
+        renderMapList();
         refreshActions();
       };
       field.append(label, select);
+      if (input.problem) {
+        const hint = document.createElement("p");
+        hint.className = "nd-hint";
+        hint.textContent = input.problem;
+        field.append(hint);
+      }
       return field;
     }),
   );
   $("dropZone").classList.toggle("has-files", inputs.length > 0);
 }
 
-async function loadMaps(files: File[], signal?: AbortSignal) {
+/** Tell the page drop which files the list holds now, so Undo restores it as it was. */
+function reportFiles() {
+  $("imageInput").dispatchEvent(new CustomEvent("nd-files", { bubbles: true, detail: { files: inputs.map((i) => i.file) } }));
+}
+
+function resetOutputs() {
+  outputs = {};
+  results.render({});
+}
+
+/** Read maps and add them to the list; a newer map of a marker replaces the older one. Returns the maps read. */
+async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]> {
+  if (running) throw new Error("Wait for the current run to finish, or cancel it.");
   const loaded: InputMap[] = [];
   for (const file of files) {
     signal?.throwIfAborted();
     try {
       const map = await loadSubjectMap(file.name, await file.arrayBuffer());
-      loaded.push({ file, map, marker: guessMarker(file.name) });
+      loaded.push({ file, map, marker: guessMarker(file.name), problem: store ? gridProblem(map, store) : undefined });
     } catch (error) {
-      status(`${file.name}: ${(error as Error).message}`, true);
+      status((error as Error).message, true);
     }
   }
-  // A marker can come from one map only: the newest file wins.
-  const taken = new Set(loaded.map((i) => i.marker).filter(Boolean));
-  inputs = [...inputs.filter((i) => !taken.has(i.marker)), ...loaded];
-  outputs = {};
-  results.render({});
+  signal?.throwIfAborted();
+  // One map per marker: within this batch the last file wins, and it replaces an earlier map.
+  const seen = new Set<Marker>();
+  const duplicates: string[] = [];
+  for (const input of [...loaded].reverse()) {
+    if (!input.marker) continue;
+    if (seen.has(input.marker)) {
+      duplicates.push(input.file.name);
+      input.marker = null;
+    } else seen.add(input.marker);
+  }
+  const replaced = inputs.filter((i) => i.marker && seen.has(i.marker));
+  inputs = [...inputs.filter((i) => !replaced.includes(i)), ...loaded];
+  resetOutputs();
   renderMapList();
+  if (replaced.length || duplicates.length) reportFiles();
   const unnamed = loaded.filter((i) => !i.marker).length;
-  if (loaded.length) status(unnamed ? `${loaded.length} map(s) loaded · choose the marker for ${unnamed}` : `${loaded.length} map(s) loaded`);
+  if (duplicates.length) status(`Same marker twice; set to "Not used": ${duplicates.join(", ")}`, true);
+  else if (loaded.length) status(unnamed ? `${loaded.length} map(s) loaded · choose the marker for ${unnamed}` : `${loaded.length} map(s) loaded`);
+  refreshActions();
+  return loaded;
+}
+
+function clearMaps() {
+  inputs = [];
+  resetOutputs();
+  renderMapList();
   refreshActions();
 }
 
-async function ensureStore(): Promise<ModelStore> {
-  if (store) return store;
-  if (!storeSource) throw new Error("Choose a model store under Advanced settings");
-  status("Opening model store…");
-  store = await openModelStore(storeSource);
-  log.log(`Model store ${store.label}: ${store.family}, ${store.markers.join(", ")}, ${store.grid.nVox} voxels`, "info");
-  return store;
+function gridProblem(map: SubjectMap, modelStore: ModelStore): string | undefined {
+  try {
+    gridMapping(map, modelStore.grid);
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
+  }
 }
 
-let predictor: { kind: PredictorKind; instance: Predictor } | null = null;
+/** Open the chosen store once; a store chosen meanwhile wins over a slow open. */
+async function ensureStore(): Promise<ModelStore> {
+  const source = storeSource;
+  if (!source) throw new Error("Choose a model store under Advanced settings");
+  if (store) return store;
+  status("Opening model store…");
+  const opened = await openModelStore(source);
+  if (storeSource !== source) throw new Error("The model store changed while it was opening; run again.");
+  store = opened;
+  log.log(`Model store ${opened.label}: ${opened.family}, ${opened.markers.join(", ")}, ${opened.grid.nVox} voxels`, "info");
+  for (const input of inputs) input.problem = gridProblem(input.map, opened);
+  renderMapList();
+  return opened;
+}
+
+function setStoreSource(source: StoreSource | null) {
+  storeSource = source;
+  store = null;
+  for (const input of inputs) input.problem = undefined;
+  renderMapList();
+  refreshActions();
+}
+
+let predictor: { prefer: PredictorKind; instance: Predictor } | null = null;
 async function ensurePredictor(prefer: PredictorKind): Promise<Predictor> {
-  if (predictor?.kind === prefer) return predictor.instance;
+  if (predictor?.prefer === prefer) return predictor.instance;
   predictor?.instance.dispose();
-  const { predictor: instance, reason } = await createPredictor(prefer);
+  const { predictor: instance, reason } = await createPredictor(prefer, (why) => status(`GPU failed (${why}); continuing on the CPU`, true));
   if (reason) log.log(`WebGPU unavailable (${reason}); using the CPU`, "warning");
-  predictor = { kind: prefer, instance };
+  predictor = { prefer, instance };
   return instance;
 }
 
@@ -175,75 +254,99 @@ interface RunResult {
 }
 
 async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal): Promise<RunResult> {
+  const modelStore = await ensureStore();
+  signal.throwIfAborted();
   const chosen = inputs.filter((i): i is InputMap & { marker: Marker } => i.marker !== null);
   if (!chosen.length) throw new Error("Load at least one map and choose its marker");
-  const modelStore = await ensureStore();
+  const usable = chosen.filter((i) => !i.problem && modelStore.markers.includes(i.marker));
+  const skipped = chosen.filter((i) => !usable.includes(i));
+  for (const input of skipped) log.log(input.problem ?? `${input.file.name}: the store has no ${input.marker} models`, "warning");
+  if (!usable.length) throw new Error(skipped[0]?.problem ?? "No map can be scored against this store");
+
   const compute = await ensurePredictor(prefer);
-  outputs = {};
+  resetOutputs();
+  const produced: Record<string, ZmapOutput> = {};
   const notices: string[] = [];
+  const kinds = new Set<PredictorKind>();
   const started = performance.now();
-  for (const [k, input] of chosen.entries()) {
-    const share = (f: number) => (k + f) / chosen.length;
+  for (const [k, input] of usable.entries()) {
+    const share = (f: number) => (k + f) / usable.length;
     const mapping = gridMapping(input.map, modelStore.grid);
     status(`Loading ${input.marker} models…`);
     const params = await modelStore.loadMarker(input.marker, { signal, onProgress: (f) => progress.setProgress(share(0.9 * f)) });
-    signal.throwIfAborted();
     status(`Scoring ${input.marker}…`);
-    const { z, valid, clamped } = await compute.zmap(params, cov, gatherToStore(input.map, mapping));
+    const { z, valid, clamped, kind } = await compute.zmap(params, cov, gatherToStore(input.map, mapping), signal);
+    kinds.add(kind);
     const notice = clampingNotice(cov.age, clamped, trainingRange(params.covRanges, valid));
     if (notice) notices.push(notice);
     const scored = valid.reduce((n, x) => n + x, 0);
     const name = zmapFileName(input.marker);
-    outputs[input.marker] = {
+    const { nx, ny, nz } = input.map.header;
+    const values = new Float32Array(nx * ny * nz).fill(Number.NaN);
+    for (let v = 0; v < mapping.length; v++) if (valid[v]) values[mapping[v]] = z[v];
+    const description = `normative z (${modelStore.family} ${input.marker}, age ${cov.age}, ${cov.sex})`;
+    produced[input.marker] = {
       description: `${input.marker} z-map · ${scored.toLocaleString()} voxels`,
-      file: new File([scatterToNifti(z, valid, mapping, input.map) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
+      file: new File([scatterToNifti(z, valid, mapping, input.map, description) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
       display: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT) as Uint8Array<ArrayBuffer>], name.replace(/\.gz$/, "")),
+      values,
+      dims: [nx, ny, nz],
     };
-    log.log(`${input.marker}: ${scored} voxels scored on ${compute.kind.toUpperCase()}`, "info");
+    log.log(`${input.marker}: ${scored} voxels scored on ${kind.toUpperCase()}`, "info");
     progress.setProgress(share(1));
   }
-  results.render(outputs, chosen.map((i) => i.marker));
+  outputs = produced;
+  results.render(outputs, usable.map((i) => i.marker));
   ($("outputSection") as HTMLDetailsElement).open = true;
-  await showOutput(chosen[0].marker);
+  await showOutput(usable[0].marker);
   const seconds = ((performance.now() - started) / 1000).toFixed(1);
-  progress.end(`${chosen.length} z-map(s) ready in ${seconds} s`);
-  status(notices[0] ?? `${chosen.length} z-map(s) ready · ${compute.kind.toUpperCase()} · ${seconds} s`, false);
+  const engines = [...kinds].map((kind) => kind.toUpperCase()).join("+");
+  progress.end(`${usable.length} z-map(s) ready in ${seconds} s`);
+  const skippedNote = skipped.length ? ` · skipped ${skipped.map((i) => i.marker).join(", ")} (see log)` : "";
+  status(notices[0] ?? `${usable.length} z-map(s) ready · ${engines} · ${seconds} s${skippedNote}`, skipped.length > 0);
   return {
     artifacts: Object.values(outputs).map((o) => ({ role: "zmap", file: o.file })),
     provenance: {
       method: "pcntoolkit-blr-zscore",
       store: modelStore.label,
       family: modelStore.family,
-      compute: compute.kind,
+      compute: [...kinds],
       covariates: cov,
-      markers: chosen.map((i) => i.marker),
+      markers: usable.map((i) => i.marker),
+      skipped: skipped.map((i) => ({ file: i.file.name, marker: i.marker, reason: i.problem ?? "no models in store" })),
       ageClamped: notices.length > 0,
     },
   };
 }
 
-async function runFromUi(): Promise<RunResult | null> {
-  const cov = covariates();
-  if (!cov || running) return null;
-  running = new AbortController();
-  refreshActions();
+/** One run at a time, from the UI or automation; the footer × cancels it. */
+async function guardedRun(cov: Covariates, prefer: PredictorKind, signal?: AbortSignal): Promise<RunResult> {
+  if (running) throw new Error("A run is already in progress.");
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  running = controller;
+  setBusy(true);
   progress.begin("Computing z-maps…", { cancellable: true });
   try {
-    return await run(cov, ($("compute") as HTMLSelectElement).value as PredictorKind, running.signal);
+    return await run(cov, prefer, controller.signal);
   } catch (error) {
     const aborted = (error as Error).name === "AbortError";
     progress.end(aborted ? "Cancelled" : "Failed", { success: false });
     status(aborted ? "Cancelled" : (error as Error).message, !aborted);
-    if (!aborted) throw error;
-    return null;
+    throw error;
   } finally {
+    signal?.removeEventListener("abort", abort);
     running = null;
     progress.setCancellable(false);
-    refreshActions();
+    setBusy(false);
   }
 }
 
-$("runButton").addEventListener("click", () => void runFromUi().catch(() => {}));
+$("runButton").addEventListener("click", () => {
+  const cov = uiCovariates();
+  if (cov) void guardedRun(cov, ($("compute") as HTMLSelectElement).value as PredictorKind).catch(() => {});
+});
 $("cancelButton").onclick = () => {
   exampleControl.cancel();
   running?.abort();
@@ -251,26 +354,33 @@ $("cancelButton").onclick = () => {
 for (const id of ["age", "sex"]) $(id).addEventListener("input", refreshActions);
 $("storeUrl").addEventListener("change", () => {
   const url = ($("storeUrl") as HTMLInputElement).value.trim();
-  storeSource = url ? { kind: "url", url } : DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null;
-  store = null;
-  refreshActions();
+  setStoreSource(url ? { kind: "url", url } : DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null);
 });
 $("storeFolder").addEventListener("change", (event) => {
   const files = Array.from((event.target as HTMLInputElement).files ?? []);
   if (!files.length) return;
-  storeSource = { kind: "directory", handle: filesDirectory(files) };
-  store = null;
+  setStoreSource({ kind: "directory", handle: filesDirectory(files) });
   $("storeInfo").hidden = false;
   $("storeInfo").textContent = `${files[0].webkitRelativePath.split("/")[0]} · ${files.length} files`;
-  refreshActions();
 });
+$("clearCacheButton").addEventListener("click", () => {
+  void clearModelCache().then((cleared) => status(cleared ? "Cached models cleared" : "No cached models"));
+});
+
+// The map list appends (data-appends). A whole-window drop replaces the
+// session: the shell fires nd-replace first, then change with the new files.
+$("imageInput").addEventListener("nd-replace", clearMaps);
 $("imageInput").addEventListener("change", (event) => {
   const target = event.target as HTMLInputElement;
   const files = Array.from(target.files ?? []);
   target.value = "";
-  if (files.length) void loadMaps(files);
+  exampleControl.cancel();
+  if (files.length) void loadMaps(files).catch((error) => status((error as Error).message, true));
 });
-bindFileDrop($("dropZone"), (files) => void files.then((f) => loadMaps(f)));
+bindFileDrop($("dropZone"), (files) => {
+  exampleControl.cancel();
+  void files.then((f) => loadMaps(f)).catch((error) => status((error as Error).message, true));
+});
 
 const exampleControl = createExampleSelector({
   examples,
@@ -278,7 +388,10 @@ const exampleControl = createExampleSelector({
   onLoad: async (_example, { fetchFiles, assertCurrent, signal }) => {
     const files = await fetchFiles();
     assertCurrent();
-    await loadMaps(files, signal);
+    clearMaps();
+    const loaded = await loadMaps(files, signal);
+    reportFiles();
+    if (!loaded.some((i) => i.marker)) throw new Error("The example has no usable maps");
   },
 });
 $("exampleControl").append(exampleControl);
@@ -287,12 +400,19 @@ registerAppAutomation({
   app: APP.id,
   operations: {
     zmap: async ({ inputs: given, parameters, signal }) => {
-      inputs = [];
+      const cov = parseCovariates(String(parameters.age ?? ""), String(parameters.sex ?? ""));
+      if (!cov) throw new Error("zmap needs age (years, > 0) and sex (female or male)");
+      const url = typeof parameters.storeUrl === "string" && parameters.storeUrl ? parameters.storeUrl : DEFAULT_STORE_URL;
+      if (!url) throw new Error("zmap needs storeUrl until a default model store is published");
+      if (running) throw new Error("A run is already in progress.");
+      if (storeSource?.kind !== "url" || storeSource.url !== url) setStoreSource({ kind: "url", url });
+      clearMaps();
       await loadMaps(given.maps as File[], signal);
+      reportFiles();
       const unnamed = inputs.filter((i) => !i.marker).map((i) => i.file.name);
       if (unnamed.length) throw new Error(`Cannot tell the marker of ${unnamed.join(", ")} from its name`);
-      const cov = { age: Number(parameters.age), sex: parameters.sex as Covariates["sex"] };
-      return run(cov, (parameters.compute as PredictorKind) ?? "gpu", signal);
+      const compute = parameters.compute === "cpu" ? "cpu" : "gpu";
+      return guardedRun(cov, compute, signal);
     },
   },
 });

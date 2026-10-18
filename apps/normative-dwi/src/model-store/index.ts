@@ -3,8 +3,9 @@
 // metadata, persistent caching and where the bytes come from.
 import * as zarr from "zarrita";
 import { MARKERS, type Grid, type Marker, type MarkerParams } from "../model.ts";
+import { checkDesign } from "./design.ts";
 import { directoryStore, type DirectoryLike } from "./directory-store.ts";
-import { persistentCache } from "./persistent-cache.ts";
+import { cachingFetch } from "./persistent-cache.ts";
 
 export const FORMAT_VERSION = "0.1";
 
@@ -25,32 +26,41 @@ export interface ModelStore {
   loadMarker(marker: Marker, options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal }): Promise<MarkerParams>;
 }
 
+/** Design sizes, from the group metadata: D = basis + intercept + batch columns. */
+interface Dims {
+  D: number;
+  nKnots: number;
+  nBe: number;
+}
+
 interface Field {
   key: keyof MarkerParams & string;
   array: string;
   dtype: string;
-  width: number;
+  width: (dims: Dims) => number;
 }
 
 // The predict arrays only (proc_nm/opt_inference docs/reference/format.md);
-// N, nlZ, gamma, *_minmax and be_cov_ranges are never fetched.
+// N, nlZ, gamma, *_minmax and be_cov_ranges are never fetched. Every width is
+// checked, so a store with another layout fails here instead of being read
+// past each voxel's row.
 const FIELDS = [
-  { key: "hasModel", array: "has_model", dtype: "bool", width: 1 },
-  { key: "m", array: "m", dtype: "float64", width: 0 },
-  { key: "aTriu", array: "A_triu", dtype: "float64", width: 0 },
-  { key: "hyp", array: "hyp", dtype: "float64", width: 5 },
-  { key: "meanKnots", array: "mean_knots", dtype: "float64", width: 0 },
-  { key: "inscaler", array: "inscaler", dtype: "float64", width: 4 },
-  { key: "outscaler", array: "outscaler", dtype: "float64", width: 4 },
-  { key: "beMap", array: "be_map", dtype: "int16", width: 0 },
-  { key: "covRanges", array: "cov_ranges", dtype: "float64", width: 2 },
+  { key: "hasModel", array: "has_model", dtype: "bool", width: () => 1 },
+  { key: "m", array: "m", dtype: "float64", width: ({ D }) => D },
+  { key: "aTriu", array: "A_triu", dtype: "float64", width: ({ D }) => (D * (D + 1)) / 2 },
+  { key: "hyp", array: "hyp", dtype: "float64", width: () => 5 },
+  { key: "meanKnots", array: "mean_knots", dtype: "float64", width: ({ nKnots }) => nKnots },
+  { key: "inscaler", array: "inscaler", dtype: "float64", width: () => 4 },
+  { key: "outscaler", array: "outscaler", dtype: "float64", width: () => 4 },
+  { key: "beMap", array: "be_map", dtype: "int16", width: ({ nBe }) => nBe },
+  { key: "covRanges", array: "cov_ranges", dtype: "float64", width: () => 2 },
 ] as const satisfies readonly Field[];
 
 function baseStore(source: StoreSource): { store: Readable; label: string } {
   switch (source.kind) {
     case "url": {
       const url = source.url.replace(/\/+$/, "");
-      return { store: persistentCache(new zarr.FetchStore(url), url), label: url };
+      return { store: new zarr.FetchStore(url, { fetch: cachingFetch() }), label: url };
     }
     case "directory":
       return { store: directoryStore(source.handle), label: source.handle.name };
@@ -97,14 +107,19 @@ export async function openModelStore(source: StoreSource): Promise<ModelStore> {
   async function loadMarker(marker: Marker, options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<MarkerParams> {
     if (!markers.includes(marker)) throw new Error(`${label} has no ${marker} models`);
     const group = await zarr.open.v3(root.resolve(marker), { kind: "group" });
-    const groupAttrs = group.attrs as { be_level_columns: string[]; dims: Record<string, number> };
+    const groupAttrs = group.attrs as { be_level_columns: string[]; basis_mean: { nknots: number; degree: number } } & Record<string, unknown>;
+    checkDesign(marker, groupAttrs);
+    const columns = [...groupAttrs.be_level_columns];
+    const nKnots = groupAttrs.basis_mean.nknots + 2 * groupAttrs.basis_mean.degree;
+    const dims: Dims = { nKnots, nBe: columns.length, D: nKnots - 4 + 1 + columns.length };
     const arrays = await Promise.all(
       FIELDS.map(async (field) => {
         const array = await zarr.open.v3(group.resolve(field.array), { kind: "array" });
         if (array.dtype !== field.dtype) throw new Error(`${marker}/${field.array}: expected ${field.dtype}, found ${array.dtype}`);
         if (array.shape[0] !== nVox) throw new Error(`${marker}/${field.array}: expected ${nVox} rows`);
         const width = array.shape.slice(1).reduce((a, b) => a * b, 1);
-        if (field.width && width !== field.width) throw new Error(`${marker}/${field.array}: expected ${field.width} values per voxel, found ${width}`);
+        const expected = field.width(dims);
+        if (width !== expected) throw new Error(`${marker}/${field.array}: expected ${expected} values per voxel, found ${width}`);
         return { field, array, width };
       }),
     );
@@ -130,12 +145,6 @@ export async function openModelStore(source: StoreSource): Promise<ModelStore> {
       out[field.key] = target;
     }
 
-    const nKnots = arrays.find((a) => a.field.key === "meanKnots")!.width;
-    const D = arrays.find((a) => a.field.key === "m")!.width;
-    const columns = [...groupAttrs.be_level_columns];
-    if (D !== nKnots - 4 + 1 + columns.length) {
-      throw new Error(`${marker}: unsupported model design (D=${D}, ${nKnots} knots, ${columns.length} batch levels)`);
-    }
     return {
       marker,
       nVox,

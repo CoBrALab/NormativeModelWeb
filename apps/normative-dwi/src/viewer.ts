@@ -1,5 +1,6 @@
-// The z-map viewer: the z-map alone on white, in the CET-D1 diverging colormap
-// at ±3, saturating, as in proc_nm's figures
+// The z-map viewer: the z-map alone on black, in the CET-D1 diverging colormap
+// at ±3, saturating, as in proc_nm's figures (which draw on white; on black,
+// CET-D1's near-white middle stays distinct from unscored voxels)
 // (voxel_nm/Analyses/norm_zscores_common/norm_zscores_common_6_viz.R, zscore_png).
 import NiiVue, { MULTIPLANAR_TYPE, SHOW_RENDER, SLICE_TYPE } from "@niivue/niivue";
 import { Z_DISPLAY_LIMIT } from "./config.ts";
@@ -11,15 +12,19 @@ export const ZMAP_COLORMAP = "cet-d1";
 
 export interface ZViewer {
   attach(): Promise<void>;
-  /** Show one z-map (a displayNifti copy). */
-  show(zmap: File): Promise<void>;
+  /**
+   * Show one z-map (a displayNifti copy). `readout` describes the voxel under
+   * the crosshair from the true values (the display copy is saturated).
+   */
+  show(zmap: File, readout: (voxel: number[]) => string): Promise<void>;
   setView(view: "multiplanar" | "axial" | "coronal" | "sagittal"): void;
 }
 
 export function createZViewer(canvasId: string, onLocation: (text: string) => void): ZViewer {
   // WebGL2: slices of one small volume need nothing more, and WebGPU stays free for the predictor.
-  const nv = new NiiVue({ backend: "webgl2", isDragDropEnabled: false, backgroundColor: [1, 1, 1, 1] });
+  const nv = new NiiVue({ backend: "webgl2", isDragDropEnabled: false, backgroundColor: [0, 0, 0, 1] });
   let attached = false;
+  let readout: ((voxel: number[]) => string) | null = null;
 
   return {
     async attach() {
@@ -34,10 +39,15 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
       nv.sliceType = SLICE_TYPE.MULTIPLANAR;
       nv.showRender = SHOW_RENDER.NEVER;
       nv.isColorbarVisible = true;
-      nv.createExtensionContext().on("locationChange", (event: { detail: { string?: string } }) => onLocation(event.detail.string ?? ""));
+      nv.createExtensionContext().on("locationChange", (event: { detail: { mm?: number[]; vox?: number[] } }) => {
+        const { mm, vox } = event.detail;
+        if (!mm || !vox || !readout) return onLocation("");
+        onLocation(`${mm.slice(0, 3).map((v) => Math.round(v)).join(", ")} mm · voxel ${vox.slice(0, 3).join(",")} · ${readout(vox)}`);
+      });
       attached = true;
     },
-    async show(zmap) {
+    async show(zmap, describe) {
+      readout = describe;
       // The colormap's transparency applies to overlays only, so the z-map is
       // loaded twice: an invisible base layer that sets the grid, then the
       // coloured overlay.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { APP, clampingNotice, guessMarker, trainingRange, zmapFileName } from "../src/config.ts";
+import { APP, clampingNotice, guessMarker, parseCovariates, trainingRange, zmapFileName } from "../src/config.ts";
 
 test("app id is lowercase kebab-case and config is frozen", () => {
   assert.match(APP.id, /^[a-z][a-z0-9-]*$/);
@@ -39,4 +39,11 @@ test("training range covers only scored voxels", () => {
 test("clamping notice only when an age was clamped", () => {
   assert.equal(clampingNotice(60, 0, { min: 45, max: 81 }), null);
   assert.equal(clampingNotice(38, 1000, { min: 45.2, max: 81.4 }), "Age 38 is outside the model's 45–81 range; scored at the nearest age");
+});
+
+test("covariates need a plausible age and a sex", () => {
+  assert.deepEqual(parseCovariates("63.5", "female"), { age: 63.5, sex: "female" });
+  for (const [age, sex] of [["", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
+    assert.equal(parseCovariates(age, sex), null, `${age}/${sex}`);
+  }
 });

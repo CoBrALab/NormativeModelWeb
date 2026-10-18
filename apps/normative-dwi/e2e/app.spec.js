@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "fflate";
-import { serveStore } from "../../../tools/serve-store.mjs";
+import { serveStore } from "./serve-store.mjs";
 
 const STORE = process.env.NMZARR_STORE;
 const DIR = process.env.NORMATIVE_E2E_DIR;

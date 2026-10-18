@@ -13,7 +13,9 @@
         "maps": {
           "source": "files",
           "type": "neuro:volume",
-          "formats": ["nifti"],
+          "formats": [
+            "nifti"
+          ],
           "space": "UKB-2mm",
           "description": "Harmonised FA, MD, ICVF, ISOVF or OD maps on the UK Biobank 2 mm grid",
           "minimum": 1,
@@ -21,14 +23,45 @@
         }
       },
       "parameters": {
-        "age": { "type": "number", "description": "Age in years", "minimum": 0, "maximum": 120 },
-        "sex": { "type": "string", "enum": ["female", "male"], "description": "Sex" },
-        "compute": { "type": "string", "enum": ["gpu", "cpu"], "default": "gpu", "description": "GPU (WebGPU, single precision) or CPU (double precision reference)" }
+        "age": {
+          "type": "number",
+          "description": "Age in years (required)",
+          "minimum": 0,
+          "maximum": 120
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "female",
+            "male"
+          ],
+          "description": "Sex (required)"
+        },
+        "compute": {
+          "type": "string",
+          "enum": [
+            "gpu",
+            "cpu"
+          ],
+          "default": "gpu",
+          "description": "GPU (WebGPU, single precision; falls back to CPU) or CPU (double precision reference)"
+        },
+        "storeUrl": {
+          "type": "string",
+          "description": "URL of an nmzarr model store served with HTTP range requests and CORS (required until a default store is published)"
+        }
       },
       "artifacts": {
-        "zmap": { "type": "neuro:volume", "mediaType": "application/gzip", "minimum": 1, "maximum": 5 }
+        "zmap": {
+          "type": "neuro:volume",
+          "mediaType": "application/gzip",
+          "minimum": 1,
+          "maximum": 5
+        }
       },
-      "engines": ["browser"]
+      "engines": [
+        "browser"
+      ]
     }
   }
 }

@@ -7,11 +7,12 @@ import test from "node:test";
 import { openModelStore } from "../src/model-store/index.ts";
 import { directoryStore } from "../src/model-store/directory-store.ts";
 import { zmapCpu } from "../src/predictor/kernel.ts";
-import { FIXTURE_MARKERS, loadFixture, sexOf } from "./fixtures.js";
+import { FIXTURE_MARKERS, fixturesAvailable, loadFixture, sexOf } from "./fixtures.js";
 import { fsDirectory, notFound } from "./fs-directory.js";
 
 const STORE = process.env.NMZARR_STORE;
 const skip = STORE ? false : "set NMZARR_STORE to run against a real store";
+const skipParity = skip || (fixturesAvailable() ? false : "no local fixtures (run tools/make_fixtures.py)");
 
 test("opens the store and exposes template space", { skip }, async () => {
   const store = await openModelStore({ kind: "directory", handle: fsDirectory(STORE) });
@@ -23,7 +24,7 @@ test("opens the store and exposes template space", { skip }, async () => {
 });
 
 for (const marker of FIXTURE_MARKERS) {
-  test(`${marker}: parameters read from the store reproduce the PCNtoolkit fixtures`, { skip, timeout: 300000 }, async () => {
+  test(`${marker}: parameters read from the store reproduce the PCNtoolkit fixtures`, { skip: skipParity, timeout: 300000 }, async () => {
     const store = await openModelStore({ kind: "directory", handle: fsDirectory(STORE) });
     const fractions = [];
     const params = await store.loadMarker(marker, { onProgress: (f) => fractions.push(f) });

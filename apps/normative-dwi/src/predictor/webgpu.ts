@@ -131,7 +131,9 @@ function packScalers(params: MarkerParams): Float32Array {
 }
 
 export interface GpuZmap {
-  zmap(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>): Promise<ZmapResult>;
+  zmap(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal): Promise<ZmapResult>;
+  /** Why the device is unusable (lost), or null while it works. */
+  lostReason(): string | null;
   dispose(): void;
 }
 
@@ -145,59 +147,71 @@ export async function createGpuZmap(gpu: GPU | undefined = globalThis.navigator?
       maxBufferSize: adapter.limits.maxBufferSize,
     },
   });
+  let lost: string | null = null;
+  void device.lost.then((info) => {
+    lost = info.message || `WebGPU device lost (${info.reason})`;
+  });
   const module = device.createShaderModule({ code: SHADER });
   const pipeline = await device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "main" } });
 
-  function storage(data: Float32Array | Int32Array): GPUBuffer {
+  function storage(data: Float32Array | Int32Array, owned: GPUBuffer[]): GPUBuffer {
     const size = Math.max(16, Math.ceil(data.byteLength / 4) * 4);
     if (size > device.limits.maxStorageBufferBindingSize) throw new Error("Marker too large for this GPU's storage buffers");
     const buffer = device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, mappedAtCreation: true });
+    owned.push(buffer);
     new (data.constructor as Float32ArrayConstructor)(buffer.getMappedRange()).set(data as Float32Array);
     buffer.unmap();
     return buffer;
   }
 
-  // Parameters are uploaded per call and freed after it: each run scores a
-  // marker once, and a cache would pin ~60 MB of GPU memory per marker.
-  function upload(params: MarkerParams): GPUBuffer[] {
-    return [
-      storage(Float32Array.from(params.m)),
-      storage(packCholesky(params)),
-      storage(Float32Array.from(params.hyp)),
-      storage(Float32Array.from(params.meanKnots)),
-      storage(packScalers(params)),
-      storage(Int32Array.from(params.beMap)),
-    ];
-  }
-
-  async function zmap(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>): Promise<ZmapResult> {
+  async function zmap(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal): Promise<ZmapResult> {
+    if (lost) throw new Error(lost);
     const { nVox } = params;
     if (y.length !== nVox) throw new Error(`Expected ${nVox} values, got ${y.length}`);
     if (!supportsDesign(params)) throw new Error(`${params.marker}: the GPU path does not support this model design`);
     const column = sexColumn(params, covariates);
 
-    // Validity and clamping on the CPU (cheap), so both adapters score the same voxels.
+    // Validity on the CPU (cheap), so both adapters score the same voxels.
     const valid = new Uint8Array(nVox);
     const values = new Float32Array(nVox);
-    let clamped = 0;
     for (let v = 0; v < nVox; v++) {
       const value = y[v];
       if (!params.hasModel[v] || value === 0 || !Number.isFinite(value)) continue;
       valid[v] = 1;
       values[v] = value;
-      if (covariates.age < params.covRanges[2 * v] || covariates.age > params.covRanges[2 * v + 1]) clamped++;
     }
 
-    const paramBuffers = upload(params);
-    const uniforms = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const uniformData = new ArrayBuffer(16);
-    new Float32Array(uniformData, 0, 1)[0] = covariates.age;
-    new Uint32Array(uniformData, 4, 2).set([column, nVox]);
-    device.queue.writeBuffer(uniforms, 0, uniformData);
-    const yBuffer = storage(values);
-    const zBuffer = device.createBuffer({ size: values.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    const readback = device.createBuffer({ size: values.byteLength, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    // Parameters are uploaded per call and freed after it: each run scores a
+    // marker once, and a cache would pin ~60 MB of GPU memory per marker.
+    const owned: GPUBuffer[] = [];
+    device.pushErrorScope("out-of-memory");
+    device.pushErrorScope("validation");
+    let scopes = 2;
+    const popScope = () => {
+      scopes--;
+      return device.popErrorScope();
+    };
     try {
+      const paramBuffers = [
+        storage(Float32Array.from(params.m), owned),
+        storage(packCholesky(params), owned),
+        storage(Float32Array.from(params.hyp), owned),
+        storage(Float32Array.from(params.meanKnots), owned),
+        storage(packScalers(params), owned),
+        storage(Int32Array.from(params.beMap), owned),
+      ];
+      signal?.throwIfAborted();
+      const uniforms = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      owned.push(uniforms);
+      const uniformData = new ArrayBuffer(16);
+      new Float32Array(uniformData, 0, 1)[0] = covariates.age;
+      new Uint32Array(uniformData, 4, 2).set([column, nVox]);
+      device.queue.writeBuffer(uniforms, 0, uniformData);
+      const yBuffer = storage(values, owned);
+      const zBuffer = device.createBuffer({ size: values.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+      owned.push(zBuffer);
+      const readback = device.createBuffer({ size: values.byteLength, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      owned.push(readback);
       const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
@@ -215,23 +229,42 @@ export async function createGpuZmap(gpu: GPU | undefined = globalThis.navigator?
       pass.end();
       encoder.copyBufferToBuffer(zBuffer, 0, readback, 0, values.byteLength);
       device.queue.submit([encoder.finish()]);
+      const validation = await popScope();
+      const memory = await popScope();
+      const error = validation ?? memory;
+      if (error) throw new Error(`WebGPU error: ${error.message}`);
       await readback.mapAsync(GPUMapMode.READ);
       const z32 = new Float32Array(readback.getMappedRange().slice(0));
       readback.unmap();
+      if (lost) throw new Error(lost);
+      signal?.throwIfAborted();
+
+      // Same rules as the CPU kernel: non-finite z is not scored; clamping
+      // counts scored voxels only.
       const z = new Float64Array(nVox);
-      for (let v = 0; v < nVox; v++) if (valid[v]) z[v] = z32[v];
+      let clamped = 0;
+      for (let v = 0; v < nVox; v++) {
+        if (!valid[v]) continue;
+        if (!Number.isFinite(z32[v])) {
+          valid[v] = 0;
+          continue;
+        }
+        z[v] = z32[v];
+        if (covariates.age < params.covRanges[2 * v] || covariates.age > params.covRanges[2 * v + 1]) clamped++;
+      }
       return { z, valid, clamped };
+    } catch (error) {
+      // Leave the error-scope stack balanced if we threw before popping.
+      while (scopes > 0) await popScope().catch(() => null);
+      throw error;
     } finally {
-      for (const buffer of paramBuffers) buffer.destroy();
-      uniforms.destroy();
-      yBuffer.destroy();
-      zBuffer.destroy();
-      readback.destroy();
+      for (const buffer of owned) buffer.destroy();
     }
   }
 
   return {
     zmap,
+    lostReason: () => lost,
     dispose: () => device.destroy(),
   };
 }

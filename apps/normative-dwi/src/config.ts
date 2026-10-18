@@ -1,5 +1,5 @@
 // DOM-independent app configuration and input interpretation (unit-tested under Node).
-import { MARKERS, type Marker } from "./model.ts";
+import { MARKERS, type Covariates, type Marker } from "./model.ts";
 
 export const APP = Object.freeze({
   id: "normative-dwi",
@@ -36,6 +36,13 @@ export function guessMarker(fileName: string): Marker | null {
 
 export function isMarker(value: string): value is Marker {
   return (MARKERS as readonly string[]).includes(value);
+}
+
+/** Covariates from form or automation values, or null unless age > 0 and sex is female or male. */
+export function parseCovariates(age: string, sex: string): Covariates | null {
+  const years = Number.parseFloat(age);
+  if (!Number.isFinite(years) || years <= 0 || years > 120) return null;
+  return sex === "female" || sex === "male" ? { age: years, sex } : null;
 }
 
 /** Output file name for a marker's z-map. */

@@ -6,7 +6,7 @@ test("app boots with the workspace and a disabled run button", async ({ page }) 
   await page.goto("/");
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#runButton")).toBeDisabled();
-  await expect(page.locator("#statusText")).toHaveText("Drop maps to begin");
+  await expect(page.locator("#statusText")).toHaveText("Drag and drop files");
 });
 
 test("shared app bar owns information actions and theme", async ({ page }) => {

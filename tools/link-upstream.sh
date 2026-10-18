@@ -7,7 +7,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 upstream="$root/vendor/webapps"
 
 git -C "$root" submodule update --init vendor/webapps
-if git -C "$upstream" apply --check "$root/upstream/registry.patch" 2>/dev/null; then
+# Already applied when the reverse applies; otherwise apply, and fail loudly on a conflict.
+if ! git -C "$upstream" apply --check -R "$root/upstream/registry.patch" 2>/dev/null; then
   git -C "$upstream" apply "$root/upstream/registry.patch"
 fi
 # Install upstream first: its frozen lockfile must not see our apps.

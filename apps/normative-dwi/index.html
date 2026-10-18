@@ -12,7 +12,7 @@
         <div class="nd-section-content">
           <div id="exampleControl"></div>
           <label class="nd-file" id="dropZone">
-            <input id="imageInput" type="file" data-neurodesk-input="image" multiple accept=".nii,.nii.gz,.gz" aria-label="Choose DTI or NODDI maps" />
+            <input id="imageInput" type="file" data-neurodesk-input="image" data-appends multiple aria-label="Choose DTI or NODDI maps" />
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <span>Drop FA, MD, ICVF, ISOVF or OD maps (NIfTI)</span>
           </label>
@@ -43,7 +43,7 @@
             <div class="nd-section-content">
               <div class="nd-field">
                 <label for="compute">Compute
-                  <span class="nd-info-icon" tabindex="0" aria-label="About compute">i<span class="nd-info-tooltip">CPU computes in double precision and is the reference. GPU uses WebGPU in single precision and agrees with the CPU to about 1e-5.</span></span>
+                  <span class="nd-info-icon" tabindex="0" aria-label="About compute">i<span class="nd-info-tooltip">CPU computes in double precision and is the reference. GPU uses WebGPU in single precision and agrees with the CPU to about 1e-4.</span></span>
                 </label>
                 <select id="compute">
                   <option value="gpu">GPU when available</option>
@@ -56,11 +56,13 @@
                 </label>
                 <input id="storeUrl" type="url" placeholder="https://…/ukb_blr_agesex.zarr" />
               </div>
-              <label class="nd-btn nd-btn-secondary" id="storeFolderLabel">
-                <input id="storeFolder" type="file" webkitdirectory hidden />
-                Choose local store folder
+              <label class="nd-file" id="storeDropZone">
+                <input id="storeFolder" type="file" data-neurodesk-input="model" webkitdirectory multiple aria-label="Choose a local model store folder" />
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <span>Choose a local model store folder</span>
               </label>
               <p id="storeInfo" class="nd-file-info" hidden></p>
+              <button id="clearCacheButton" class="nd-btn nd-btn-secondary" type="button">Clear cached models</button>
             </div>
           </details>
           <button id="runButton" class="nd-btn nd-btn-primary" type="button" disabled>Compute z-maps</button>
@@ -88,7 +90,7 @@
 
     <footer id="status">
       <span class="nd-status-label">Status</span>
-      <span id="statusText" class="nd-status-text" role="status" aria-live="polite">Drop maps to begin</span>
+      <span id="statusText" class="nd-status-text" role="status" aria-live="polite">Drag and drop files</span>
       <span id="elapsed" class="nd-status-elapsed"></span>
       <progress id="progress" max="1" value="0" aria-label="Processing progress"></progress>
       <button id="cancelButton" class="nd-btn-cancel" type="button" title="Cancel processing" aria-label="Cancel processing" hidden>×</button>
@@ -99,11 +101,11 @@
       <p><strong>Models.</strong> Bayesian linear regression with a sinh-arcsinh likelihood warp and age-dependent noise (PCNtoolkit 1.4), fitted per voxel on ComBat-harmonised UK Biobank data. The covariate is age (cubic B-spline); sex is a batch effect. Markers: FA and MD (DTI), ICVF, ISOVF and OD (NODDI), on the UK Biobank 2 mm template grid (97×115×97).</p>
       <p><strong>Inputs.</strong> Maps must already be registered to that grid, ANLM-denoised and masked as proc_nm's resampling step does, and harmonised to UK Biobank. The app checks the grid and refuses other images; it cannot check harmonisation. Unharmonised data will show site effects as deviations.</p>
       <p><strong>Ages.</strong> The models were trained on ages of about 45 to 81. Ages outside a voxel's training range are scored at its nearest end, and the status line says so.</p>
-      <p><strong>Output.</strong> One z-map per input map, on the input's grid. Voxels without a model, or where the input is 0 or not a number, are written as 0; the viewer leaves them transparent.</p>
-      <p><strong>Accuracy.</strong> The CPU path reproduces PCNtoolkit's z-scores to better than 1e-6. The GPU path computes in single precision and agrees with it to about 1e-5.</p>
+      <p><strong>Output.</strong> One z-map per input map, on the input's grid, marked as a z-score image (NIfTI intent 5). Voxels without a model, or where the input is 0 or not a number, are written as 0; the viewer leaves them transparent and its readout says "not scored".</p>
+      <p><strong>Accuracy.</strong> The CPU path reproduces PCNtoolkit's z-scores to better than 1e-6, with ages clamped to the training range as proc_nm does (PCNtoolkit itself would extrapolate). The GPU path computes in single precision and agrees with the CPU to about 1e-4; if the GPU fails, scoring continues on the CPU.</p>
     </template>
     <template id="privacyContent">
-      <p>Your maps are processed locally in this browser and are never uploaded. The only network traffic is downloading the model store (and the example, if you choose one); a downloaded store is cached in this browser for later visits.</p>
+      <p>Your maps are processed locally in this browser and are never uploaded. The only network traffic is downloading the model store (and the example, if you choose one). A store at a pinned, immutable address is cached in this browser for later visits; Advanced settings has a button to clear that cache.</p>
     </template>
 
     <script type="module" src="/src/main.ts"></script>

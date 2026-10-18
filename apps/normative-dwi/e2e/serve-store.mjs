@@ -2,7 +2,7 @@
 // Serve a local nmzarr store the way a public host must: HTTP Range requests
 // (including suffix ranges, which sharded Zarr uses for shard indexes) and CORS.
 // `python -m http.server` ignores Range and breaks shard reads.
-//   node tools/serve-store.mjs <store-dir> [port]
+//   node apps/normative-dwi/e2e/serve-store.mjs <store-dir> [port]
 import { createReadStream, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, normalize, sep } from "node:path";
@@ -41,7 +41,7 @@ export function serveStore(root, port = 0) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [root, port = "8765"] = process.argv.slice(2);
   if (!root) {
-    console.error("usage: node tools/serve-store.mjs <store-dir> [port]");
+    console.error("usage: node e2e/serve-store.mjs <store-dir> [port]");
     process.exit(1);
   }
   const server = await serveStore(root, Number(port));

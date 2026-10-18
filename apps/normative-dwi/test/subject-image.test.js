@@ -31,17 +31,33 @@ test("a map with a flipped axis is matched too", async () => {
   assertGathersWorld(await mapFor(xFirst.dims, [[-2, 0, 0, 0], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]]));
 });
 
-for (const [label, dims, affine] of [
-  ["the wrong size", [6, 5, 3], xFirst.affine],
-  ["1 mm voxels", [12, 10, 8], [[1, 0, 0, -10], [0, 1, 0, -20], [0, 0, 1, -30], [0, 0, 0, 1]]],
-  ["a half-voxel shift", xFirst.dims, [[2, 0, 0, -9], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]]],
-  ["a rotation", xFirst.dims, [[1.9, 0.6, 0, -10], [-0.6, 1.9, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]]],
+const c30 = 2 * Math.cos(Math.PI / 6), s30 = 2 * Math.sin(Math.PI / 6);
+for (const [label, dims, affine, reason] of [
+  ["the wrong size", [6, 5, 3], xFirst.affine, /its size is 6×5×3/],
+  ["1 mm voxels", xFirst.dims, [[1, 0, 0, -10], [0, 1, 0, -20], [0, 0, 1, -30], [0, 0, 0, 1]], /its voxels are 1×1×1 mm/],
+  ["a half-voxel shift", xFirst.dims, [[2, 0, 0, -9], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]], /its origin is off the template's voxel centres by -1×0×0 mm/],
+  ["a whole-voxel shift", xFirst.dims, [[2, 0, 0, -6], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]], /its origin is shifted by whole voxels/],
+  ["a rotation", xFirst.dims, [[c30, -s30, 0, -10], [s30, c30, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]], /rotated or oblique/],
 ]) {
-  test(`a map with ${label} is rejected with the expected grid`, async () => {
+  test(`a map with ${label} is rejected and says what differs`, async () => {
     const map = await mapFor(dims, affine);
-    assert.throws(() => gridMapping(map, grid), (error) => error instanceof GridMismatchError && /expected a 4×5×6 map at 2 mm in template space; found/.test(error.message));
+    assert.throws(() => gridMapping(map, grid), (error) => error instanceof GridMismatchError
+      && /map\.nii: not on the 4×5×6 template grid at 2×2×2 mm; /.test(error.message) && reason.test(error.message));
   });
 }
+
+test("an affine in metres (xyzt_units) is read in millimetres", async () => {
+  const metres = xFirst.affine.map((row, r) => (r < 3 ? row.map((v) => v / 1000) : row));
+  const bytes = worldCodedNifti(xFirst.dims, xFirst.affine);
+  const view = new DataView(bytes.buffer);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) view.setFloat32(280 + 16 * r + 4 * c, metres[r][c], true);
+  view.setUint8(123, 1); // NIFTI_UNITS_METER
+  assertGathersWorld(await loadSubjectMap("metres.nii", bytes));
+});
+
+test("a file that is not NIfTI-1 is refused", async () => {
+  await assert.rejects(loadSubjectMap("notes.txt", new TextEncoder().encode("x".repeat(400))), /notes\.txt: not a NIfTI-1 image/);
+});
 
 test("a 4-D image is rejected", async () => {
   const bytes = makeNifti(xFirst.dims, xFirst.affine, new Float32Array(6 * 5 * 4 * 2));
@@ -55,8 +71,13 @@ test("the z-map is written on the map's own grid, 0 where not scored", async () 
   const mapping = gridMapping(map, grid);
   const z = Float64Array.from({ length: grid.nVox }, (_, v) => v / 7 - 2);
   const valid = Uint8Array.from({ length: grid.nVox }, (_, v) => (v % 4 ? 1 : 0));
-  const bytes = scatterToNifti(z, valid, mapping, map);
-  const back = await loadSubjectMap("z.nii.gz", gunzipSync(bytes));
+  const bytes = scatterToNifti(z, valid, mapping, map, "normative z (test FA)");
+  const raw = gunzipSync(bytes);
+  const header = new DataView(raw.buffer, raw.byteOffset);
+  assert.equal(header.getInt16(68, true), 5, "intent NIFTI_INTENT_ZSCORE");
+  assert.equal(header.getFloat32(108, true), 352, "no extensions");
+  assert.equal(new TextDecoder().decode(raw.subarray(148, 148 + 21)), "normative z (test FA)");
+  const back = await loadSubjectMap("z.nii.gz", raw);
   assert.deepEqual(back.header.affine.map((r) => [...r]), map.header.affine.map((r) => [...r]));
   assert.equal(back.header.datatype, 16);
   const expected = new Float32Array(6 * 5 * 4);
@@ -64,9 +85,10 @@ test("the z-map is written on the map's own grid, 0 where not scored", async () 
   assert.deepEqual(Float32Array.from(back.data), expected);
 });
 
-const TEMPLATE = "/scratch/parent41/UKB/temporary_template/avg.020_2mm.nii.gz";
+// A real template-space image, e.g. proc_nm's templates/tissue/avg.020_2mm (as NIfTI).
+const TEMPLATE = process.env.NORMATIVE_TEMPLATE_NIFTI;
 const STORE = process.env.NMZARR_STORE;
-test("the UK Biobank 2 mm template NIfTI sits on the store's grid", { skip: !(STORE && existsSync(TEMPLATE)) && "needs NMZARR_STORE and the template" }, async () => {
+test("a UK Biobank 2 mm template NIfTI sits on the store's grid", { skip: !(STORE && TEMPLATE && existsSync(TEMPLATE)) && "needs NMZARR_STORE and NORMATIVE_TEMPLATE_NIFTI" }, async () => {
   const { openModelStore } = await import("../src/model-store/index.ts");
   const { fsDirectory } = await import("./fs-directory.js");
   const store = await openModelStore({ kind: "directory", handle: fsDirectory(STORE) });

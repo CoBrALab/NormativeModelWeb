@@ -27,7 +27,7 @@ for (const marker of MARKERS) {
     const map = await loadSubjectMap(`input_${marker}.nii.gz`, readFileSync(input));
     const mapping = gridMapping(map, store.grid);
     const { z, valid } = zmapCpu(params, { age, sex }, gatherToStore(map, mapping));
-    const out = await loadSubjectMap("out", gunzipSync(scatterToNifti(z, valid, mapping, map)));
+    const out = await loadSubjectMap("out", gunzipSync(scatterToNifti(z, valid, mapping, map, `normative z (${marker})`)));
     const ref = await loadSubjectMap("ref", readFileSync(join(DIR, `reference_${marker}.nii.gz`)));
     assert.equal(out.data.length, ref.data.length);
     let worst = 0, scored = 0, zeroMismatch = 0;
