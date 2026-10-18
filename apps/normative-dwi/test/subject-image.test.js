@@ -111,3 +111,23 @@ test("the display copy saturates z and puts unscored voxels below the display ra
     else assert.ok(shown < -3);
   }
 });
+
+test("the map voxel at a world position is found in any axis order or direction", async () => {
+  const { voxelAtMm } = await import("../src/subject-image/index.ts");
+  const { syntheticMap, syntheticModel, storeVoxelAt } = await import("./synthetic-store.js");
+  const model = syntheticModel({ markers: ["FA"] });
+  for (const layout of ["ras", "minc", "las"]) {
+    const { bytes, y } = syntheticMap(model, "FA", 3, layout);
+    const map = await loadSubjectMap(`${layout}.nii`, bytes);
+    const locate = voxelAtMm(map.header);
+    for (const v of [0, 17, 400, model.nVox - 1]) {
+      const [i, j, k] = model.ijk.subarray(3 * v, 3 * v + 3);
+      const world = [2 * k - 12, 2 * j - 14, 2 * i - 12];
+      const found = locate(world.map((c) => c + 0.6)); // inside the voxel, off its centre
+      assert.deepEqual(found.centre, world, `${layout} voxel ${v}`);
+      assert.equal(map.data[found.index], Math.fround(y[v]), `${layout} voxel ${v}`);
+      assert.equal(storeVoxelAt(model, found.centre), v);
+    }
+    assert.equal(locate([500, 0, 0]), null);
+  }
+});

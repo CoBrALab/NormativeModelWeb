@@ -3,8 +3,6 @@
 // CPU parity, the desktop workflow. Nothing here comes from a fitted model;
 // scientific parity with PCNtoolkit is tested separately (tools/make_fixtures.py).
 //
-// Arrays are written uncompressed and unsharded (one chunk each); the reader
-// does not depend on the real store's sharding or codecs.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeNifti } from "./nifti.js";
@@ -105,18 +103,103 @@ export function syntheticModel({ shape = [12, 14, 12], seed = 7, markers = SYNTH
   return { shape, mask, ijk: Int32Array.from(ijk), nVox, affine, markers, params };
 }
 
-function arrayMeta(shape, dataType) {
+// Arrays are written the way the real store is (proc_nm/opt_inference
+// nmzarr/convert.py): per-voxel arrays sharded along the voxel axis, inner
+// chunks compressed with blosc (zstd, bitshuffle), a crc32c-checked shard index
+// at the end; the root arrays as one zstd chunk. Shards are much smaller than
+// the voxel count so readers cross shard boundaries and read partial shards.
+export const SHARD_VOXELS = 512;
+export const CHUNK_VOXELS = 128;
+
+const TYPED = { bool: Uint8Array, uint8: Uint8Array, int16: Int16Array, int32: Int32Array, float64: Float64Array };
+
+let crcTable;
+function crc32c(bytes) {
+  crcTable ??= Uint32Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0x82f63b78 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const bytesCodec = (dataType) => (TYPED[dataType].BYTES_PER_ELEMENT === 1 ? { name: "bytes" } : { name: "bytes", configuration: { endian: "little" } });
+
+function baseMeta(shape, dataType, chunkShape, codecs) {
   return {
     zarr_format: 3,
     node_type: "array",
     shape,
     data_type: dataType,
-    chunk_grid: { name: "regular", configuration: { chunk_shape: shape } },
+    chunk_grid: { name: "regular", configuration: { chunk_shape: chunkShape } },
     chunk_key_encoding: { name: "default", configuration: { separator: "/" } },
     fill_value: dataType === "bool" ? false : 0,
-    codecs: [{ name: "bytes", configuration: { endian: "little" } }],
+    codecs,
     attributes: {},
   };
+}
+
+async function codecs() {
+  const [{ default: Blosc }, { default: Zstd }] = await Promise.all([import("numcodecs/blosc"), import("numcodecs/zstd")]);
+  return { blosc: Blosc.fromConfig({ cname: "zstd", clevel: 5, shuffle: 2, blocksize: 0 }), zstd: Zstd.fromConfig({ level: 0 }) };
+}
+
+/** A per-voxel array as sharded files: [{ key, bytes }] plus its metadata. */
+async function shardedArray(data, shape, dataType, blosc) {
+  const width = shape.slice(1).reduce((a, b) => a * b, 1);
+  const itemBytes = TYPED[dataType].BYTES_PER_ELEMENT;
+  const raw = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  const meta = baseMeta(shape, dataType, [SHARD_VOXELS, ...shape.slice(1)], [{
+    name: "sharding_indexed",
+    configuration: {
+      chunk_shape: [CHUNK_VOXELS, ...shape.slice(1)],
+      codecs: [bytesCodec(dataType), { name: "blosc", configuration: { typesize: itemBytes, cname: "zstd", clevel: 5, shuffle: "bitshuffle", blocksize: 0 } }],
+      index_codecs: [{ name: "bytes", configuration: { endian: "little" } }, { name: "crc32c" }],
+      index_location: "end",
+    },
+  }]);
+  const perShard = SHARD_VOXELS / CHUNK_VOXELS;
+  const rest = shape.slice(1).map(() => "0");
+  const files = [];
+  for (let shardStart = 0, s = 0; shardStart < shape[0]; shardStart += SHARD_VOXELS, s++) {
+    const parts = [];
+    const index = new BigUint64Array(2 * perShard).fill(0xffffffffffffffffn); // empty chunks
+    let offset = 0;
+    for (let c = 0; c < perShard; c++) {
+      const start = shardStart + c * CHUNK_VOXELS;
+      if (start >= shape[0]) break;
+      // A chunk at the array's end is padded with the fill value to full size.
+      const chunk = new Uint8Array(CHUNK_VOXELS * width * itemBytes);
+      chunk.set(raw.subarray(start * width * itemBytes, Math.min(start + CHUNK_VOXELS, shape[0]) * width * itemBytes));
+      const encoded = await blosc.encode(chunk);
+      parts.push(encoded);
+      index[2 * c] = BigInt(offset);
+      index[2 * c + 1] = BigInt(encoded.length);
+      offset += encoded.length;
+    }
+    const indexBytes = new Uint8Array(index.buffer);
+    const checksum = new Uint8Array(4);
+    new DataView(checksum.buffer).setUint32(0, crc32c(indexBytes), true);
+    const shard = new Uint8Array(offset + indexBytes.length + 4);
+    let at = 0;
+    for (const part of parts) {
+      shard.set(part, at);
+      at += part.length;
+    }
+    shard.set(indexBytes, at);
+    shard.set(checksum, at + indexBytes.length);
+    files.push({ key: ["c", String(s), ...rest].join("/"), bytes: shard });
+  }
+  return { meta, files };
+}
+
+/** A root array as one zstd-compressed chunk, as in the real store. */
+async function wholeArray(data, shape, dataType, zstd) {
+  const meta = baseMeta(shape, dataType, shape, [bytesCodec(dataType), { name: "zstd", configuration: { level: 0, checksum: false } }]);
+  const bytes = await zstd.encode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  return { meta, files: [{ key: ["c", ...shape.map(() => "0")].join("/"), bytes }] };
 }
 
 const MARKER_ATTRS = {
@@ -136,32 +219,34 @@ const MARKER_ATTRS = {
 
 /** Write the model as an nmzarr store folder; returns the folder. */
 export async function writeSyntheticStore(dir, model) {
+  const { blosc, zstd } = await codecs();
   const nodes = {};
   const files = [];
-  const add = (path, meta, data) => {
+  const add = (path, { meta, files: chunks }) => {
     nodes[path] = meta;
-    const key = meta.shape.map(() => "0").join("/");
     files.push([join(path, "zarr.json"), JSON.stringify(meta)]);
-    files.push([join(path, "c", key), new Uint8Array(data.buffer, data.byteOffset, data.byteLength)]);
+    for (const { key, bytes } of chunks) files.push([join(path, key), bytes]);
   };
-  add("mask", arrayMeta(model.shape, "uint8"), model.mask);
-  add("affine", arrayMeta([4, 4], "float64"), Float64Array.from(model.affine));
-  add("ijk", arrayMeta([model.nVox, 3], "int32"), model.ijk);
+  add("mask", await wholeArray(model.mask, model.shape, "uint8", zstd));
+  add("affine", await wholeArray(Float64Array.from(model.affine), [4, 4], "float64", zstd));
+  add("ijk", await wholeArray(model.ijk, [model.nVox, 3], "int32", zstd));
   const n = model.nVox;
   for (const marker of model.markers) {
     const p = model.params[marker];
     const group = { zarr_format: 3, node_type: "group", attributes: { ...MARKER_ATTRS, dims: { D, n_hyp: 5, n_knots: KNOTS, n_cov: 1, n_be_levels: 2 } } };
     nodes[marker] = group;
     files.push([join(marker, "zarr.json"), JSON.stringify(group)]);
-    add(`${marker}/has_model`, arrayMeta([n], "bool"), p.hasModel);
-    add(`${marker}/m`, arrayMeta([n, D], "float64"), p.m);
-    add(`${marker}/A_triu`, arrayMeta([n, (D * (D + 1)) / 2], "float64"), p.aTriu);
-    add(`${marker}/hyp`, arrayMeta([n, 5], "float64"), p.hyp);
-    add(`${marker}/mean_knots`, arrayMeta([n, KNOTS], "float64"), p.meanKnots);
-    add(`${marker}/inscaler`, arrayMeta([n, 1, 4], "float64"), p.inscaler);
-    add(`${marker}/outscaler`, arrayMeta([n, 4], "float64"), p.outscaler);
-    add(`${marker}/be_map`, arrayMeta([n, 2], "int16"), p.beMap);
-    add(`${marker}/cov_ranges`, arrayMeta([n, 1, 2], "float64"), p.covRanges);
+    for (const [name, data, shape, dataType] of [
+      ["has_model", p.hasModel, [n], "bool"],
+      ["m", p.m, [n, D], "float64"],
+      ["A_triu", p.aTriu, [n, (D * (D + 1)) / 2], "float64"],
+      ["hyp", p.hyp, [n, 5], "float64"],
+      ["mean_knots", p.meanKnots, [n, KNOTS], "float64"],
+      ["inscaler", p.inscaler, [n, 1, 4], "float64"],
+      ["outscaler", p.outscaler, [n, 4], "float64"],
+      ["be_map", p.beMap, [n, 2], "int16"],
+      ["cov_ranges", p.covRanges, [n, 1, 2], "float64"],
+    ]) add(`${marker}/${name}`, await shardedArray(data, shape, dataType, blosc));
   }
   const root = {
     zarr_format: 3,
@@ -178,25 +263,42 @@ export async function writeSyntheticStore(dir, model) {
 }
 
 /**
- * A map of one marker on the model's grid, as an x-fastest NIfTI (the usual
- * layout). Values are random around the voxel's response scaler; about 5% are 0
- * (missing). Returns { bytes, y } with y in store voxel order.
+ * A map of one marker on the model's grid as a NIfTI. Values are random around
+ * the voxel's response scaler; about 5% are 0 (missing). Returns { bytes, y }
+ * with y in store voxel order. `layout` picks how the same grid is written:
+ * "ras" x-fastest (the usual NIfTI), "minc" in the store's own order (z-fastest
+ * in world terms) or "las" x-fastest with x running right to left.
  */
-export function syntheticMap(model, marker, seed = 11) {
+export function syntheticMap(model, marker, seed = 11, layout = "ras") {
   const rng = random(seed);
-  const [n0, n1, n2] = model.shape; // store order: z, y, x
-  const nx = n2, ny = n1, nz = n0;
-  const data = new Float32Array(nx * ny * nz);
+  const [n0, n1, n2] = model.shape; // store order: world z, y, x
   const y = new Float64Array(model.nVox);
   const p = model.params[marker];
   for (let v = 0; v < model.nVox; v++) {
-    const value = rng.uniform() < 0.05 ? 0 : Math.fround(p.outscaler[4 * v] + p.outscaler[4 * v + 1] * 1.5 * rng.normal());
-    const [i, j, k] = model.ijk.subarray(3 * v, 3 * v + 3);
-    data[k + nx * (j + ny * i)] = value;
-    y[v] = value;
+    y[v] = rng.uniform() < 0.05 ? 0 : Math.fround(p.outscaler[4 * v] + p.outscaler[4 * v + 1] * 1.5 * rng.normal());
   }
-  const affine = [[2, 0, 0, -12], [0, 2, 0, -14], [0, 0, 2, -12], [0, 0, 0, 1]];
-  return { bytes: makeNifti([nx, ny, nz], affine, data), y };
+  // Each layout: file dims, file index of store voxel (i, j, k), and file affine.
+  const layouts = {
+    ras: [[n2, n1, n0], (i, j, k) => k + n2 * (j + n1 * i), [[2, 0, 0, -12], [0, 2, 0, -14], [0, 0, 2, -12], [0, 0, 0, 1]]],
+    minc: [[n0, n1, n2], (i, j, k) => i + n0 * (j + n1 * k), [[0, 0, 2, -12], [0, 2, 0, -14], [2, 0, 0, -12], [0, 0, 0, 1]]],
+    las: [[n2, n1, n0], (i, j, k) => n2 - 1 - k + n2 * (j + n1 * i), [[-2, 0, 0, -12 + 2 * (n2 - 1)], [0, 2, 0, -14], [0, 0, 2, -12], [0, 0, 0, 1]]],
+  };
+  const [dims, fileIndex, affine] = layouts[layout];
+  const data = new Float32Array(dims[0] * dims[1] * dims[2]);
+  for (let v = 0; v < model.nVox; v++) {
+    const [i, j, k] = model.ijk.subarray(3 * v, 3 * v + 3);
+    data[fileIndex(i, j, k)] = y[v];
+  }
+  return { bytes: makeNifti(dims, affine, data), y };
+}
+
+/** Store voxel at a world position (mm) of the model's grid, or -1. */
+export function storeVoxelAt(model, [x, y, z]) {
+  const [i, j, k] = [(z + 12) / 2, (y + 14) / 2, (x + 12) / 2];
+  for (let v = 0; v < model.nVox; v++) {
+    if (model.ijk[3 * v] === i && model.ijk[3 * v + 1] === j && model.ijk[3 * v + 2] === k) return v;
+  }
+  return -1;
 }
 
 /** The store's parameters for one marker as MarkerParams (for comparing in Node). */

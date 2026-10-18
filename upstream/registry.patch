@@ -10,25 +10,28 @@ index 00000000..29ec3c19
 +
 +New app: Normative DWI scores one person's DTI and NODDI maps (FA, MD, ICVF, ISOVF, OD) against voxelwise normative models of the UK Biobank population and writes a z-score map for each, entirely in the browser. It reads PCNtoolkit warped Bayesian linear regression models from an nmzarr (Zarr v3) model store chosen by URL or local folder, checks that each map sits on the UK Biobank 2 mm template grid, and scores with a float64 CPU kernel that reproduces PCNtoolkit to better than 1e-6, or with WebGPU in float32 (within 1e-3, falling back to the CPU). Outputs are NIfTI z-score images on the input grid.
 diff --git a/docs/architecture/offline-executables.md b/docs/architecture/offline-executables.md
-index f62327d4..1449e6d8 100644
+index 10b8c5c4..c1ce9fcf 100644
 --- a/docs/architecture/offline-executables.md
 +++ b/docs/architecture/offline-executables.md
-@@ -61,6 +61,7 @@ Paths in this table are relative to the repository root. Existing implementation
+@@ -63,6 +63,7 @@ Paths in this table are relative to the repository root. Existing implementation
  | `nesvor` | Slice-to-volume MRI reconstruction | `exes/compute-server` runs the pinned CUDA container on Linux with NVIDIA. Its archive includes the browser frontend; Docker, model preparation and real CUDA validation remain separate. |
  | `dicom2vid` | Volume-to-video conversion | `packages/dicom2vid/bin/dicom2vid.js` runs the app's readers, series selection and frame pipeline from `packages/dicom2vid`, draws frames into buffers and encodes VP9 with libvpx (libav.js WebAssembly) into the app's muxers; `exes/node-cli` packages it for Linux x64, Windows x64 and macOS arm64. Its release check holds frame count, size, timing and key frames to the recorded Chromium videos. WebM frame PSNR compares with both recorded browser frames and rendered source; MP4 frame PSNR compares with rendered source. Windowing, rotation and stretching remain web-only; MP4 is VP9, not H.264. |
  | `surfannotate` | No default batch equivalent | Manual surface ROI drawing and vertex selection. Excluded from this rollout. |
-+| `normative-dwi` | Voxelwise normative z-maps for DTI/NODDI maps | The batch equivalent is the Python normative step of the CoBrALab proc_nm pipeline (PCNtoolkit). A Node command line around the app's own `model-store`, `predictor` and `subject-image` modules is straightforward once a public model store exists. |
++| `normative-dwi` | Voxelwise normative z-maps for DTI/NODDI maps | No public batch equivalent yet (PCNtoolkit predict on the same models gives the same z-scores). A Node command line around the app's own `model-store`, `predictor` and `subject-image` modules is straightforward once a public model store exists. |
  | `zarro` | No default batch equivalent | Interactive OME-Zarr exploration. Conversion or extraction would be a separately scoped command. |
  | `dicomview` | No default batch equivalent | Interactive DICOM browsing. Its batch steps already ship as command lines: dcm2niix for conversion and dicompare for protocol summaries and checks. |
  
 diff --git a/registry/app-information.yml b/registry/app-information.yml
-index 8ef10a13..e668db4b 100644
+index f4415674..38beec9b 100644
 --- a/registry/app-information.yml
 +++ b/registry/app-information.yml
-@@ -1438,3 +1438,44 @@ apps:
-         title: Prais-Winsten AR(1) prewhitening
-         reference: "Prais SJ, Winsten CB. Trend Estimators and Serial Correlation. Cowles Commission Discussion Paper, Statistics No. 383. 1954."
-         url: https://cowles.yale.edu/sites/default/files/2023-05/s-0383.pdf
+@@ -1568,4 +1568,45 @@ apps:
+       - group: Visualization
+         title: NiiVue
+         reference: "NiiVue Contributors. NiiVue: a WebGL2 medical image viewer [Computer software]."
+-        url: https://github.com/niivue/niivue
+\ No newline at end of file
++        url: https://github.com/niivue/niivue
 +
 +  normative-dwi:
 +    about:
@@ -71,12 +74,12 @@ index 8ef10a13..e668db4b 100644
 +        reference: "NiiVue Contributors. NiiVue: a WebGL2 medical image viewer [Computer software]."
 +        url: https://github.com/niivue/niivue
 diff --git a/registry/apps.yml b/registry/apps.yml
-index 17265079..bfcd3367 100644
+index 45711dca..d4745ee4 100644
 --- a/registry/apps.yml
 +++ b/registry/apps.yml
-@@ -729,3 +729,24 @@ apps:
+@@ -769,3 +769,24 @@ apps:
+       shared_runtime: false
        browser_test: true
-       hardware_gpu: true
        release: false
 +  - id: normative-dwi
 +    path: normative-dwi
@@ -88,7 +91,7 @@ index 17265079..bfcd3367 100644
 +    runtime: vite-webgpu
 +    model_manifest: null
 +    asset_manifest_schema: null
-+    source: CoBrALab/NormativeModelWeb@main
++    source: neurodesk/webapps@local
 +    license: MIT
 +    maintainers: [neurodesk]
 +    support_status: experimental
@@ -99,11 +102,38 @@ index 17265079..bfcd3367 100644
 +      browser_test: true
 +      hardware_gpu: true
 +      release: false
+diff --git a/registry/offline-assets.lock.json b/registry/offline-assets.lock.json
+index 2a627176..9029cc76 100644
+--- a/registry/offline-assets.lock.json
++++ b/registry/offline-assets.lock.json
+@@ -4100,6 +4100,7 @@
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.nii.gz",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.bval",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.bvec"
+-    ]
++    ],
++    "normative-dwi": []
+   }
+ }
+diff --git a/registry/offline-assets.sources.json b/registry/offline-assets.sources.json
+index 91f58eda..6333a44f 100644
+--- a/registry/offline-assets.sources.json
++++ b/registry/offline-assets.sources.json
+@@ -4332,7 +4332,8 @@
+         "bytes": 535,
+         "kind": "example"
+       }
+-    ]
++    ],
++    "normative-dwi": []
+   },
+   "exclusions": [],
+   "python": {
 diff --git a/registry/standalone.json b/registry/standalone.json
-index 9b1f704e..8d556c52 100644
+index 06812f50..0c349218 100644
 --- a/registry/standalone.json
 +++ b/registry/standalone.json
-@@ -1537,6 +1537,13 @@
+@@ -1551,6 +1551,13 @@
        "assets": [],
        "downloads": [],
        "containers": []
@@ -118,15 +148,15 @@ index 9b1f704e..8d556c52 100644
    }
  }
 diff --git a/scripts/desktop/workflows.mjs b/scripts/desktop/workflows.mjs
-index 3fe362fb..bdedb73f 100644
+index 8cdcb211..0819406f 100644
 --- a/scripts/desktop/workflows.mjs
 +++ b/scripts/desktop/workflows.mjs
 @@ -10,7 +10,7 @@ import { expect } from '@playwright/test';
  import { verifyMuscleMapFullPipeline, createSyntheticMuscleMapNifti } from '../../test/musclemap-full-pipeline-smoke.mjs';
  import { startReferenceServer } from '../../test-utils/compute-reference-server.mjs';
  
--export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep'];
-+export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep', 'normative-dwi'];
+-export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep', 'noddi', 'degibbs'];
++export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep', 'noddi', 'degibbs', 'normative-dwi'];
  
  /**
   * Anything a workflow needs before the desktop app starts. NeSVoR computes on a
@@ -160,7 +190,7 @@ index 3fe362fb..bdedb73f 100644
      const folder = await mkdtemp(join(tmpdir(), 'offline-zarr-'));
      try {
 diff --git a/scripts/lib/e2e-test-data.mjs b/scripts/lib/e2e-test-data.mjs
-index c56a0849..4afbebb8 100644
+index 823e5265..03f02b27 100644
 --- a/scripts/lib/e2e-test-data.mjs
 +++ b/scripts/lib/e2e-test-data.mjs
 @@ -46,6 +46,8 @@ export const provisioners = {
@@ -182,10 +212,10 @@ index c56a0849..4afbebb8 100644
  
  // With `cpu`, only the app's CPU subset; for an app without one, nothing.
 diff --git a/test/app-information.test.mjs b/test/app-information.test.mjs
-index 98917baf..3902f4bf 100644
+index 99c1e524..bd722f83 100644
 --- a/test/app-information.test.mjs
 +++ b/test/app-information.test.mjs
-@@ -43,6 +43,7 @@ const REQUIRED_METHODS = {
+@@ -47,6 +47,7 @@ const REQUIRED_METHODS = {
    edgereg: ['afni.nimh.nih.gov', '10.1016/j.jneumeth.2016.03.001', 'github.com/niivue/niivue'],
    ants: ['10.1038/s41598-021-87564-6', '10.1016/j.neuroimage.2010.09.025', '10.1016/j.neuroimage.2026.122074', '10.1016/j.jneumeth.2016.03.001'],
    'carotid-flow': ['10.5281/zenodo.18712355', '10.1177/00359157740676P113', '10.1016/j.jneumeth.2016.03.001', 'github.com/niivue/niivue'],
@@ -194,14 +224,14 @@ index 98917baf..3902f4bf 100644
    lcmodel: ['10.1002/mrm.1910300604', '10.1002/mrm.26091', '10.1002/mrm.25094', '10.1002/mp.12375', '10.1002/(SICI)1099-1492(199810)11:6<266::AID-NBM530>3.0.CO;2-J', '10.1002/nbm.4618', '10.1002/mrm.24391', '10.1002/mrm.20901', '10.1002/jmri.24903', '10.1016/j.jneumeth.2020.108827', '10.1016/j.neuroimage.2026.122074', '10.1002/mrm.29418', '10.1016/j.jneumeth.2016.03.001'],
    greedy: ['sites.google.com/view/greedyreg/about', 'github.com/pyushkevich/greedy', 'arxiv.org/abs/2506.11860', '10.1016/j.jneumeth.2016.03.001'],
 diff --git a/test/standalone.test.mjs b/test/standalone.test.mjs
-index aa5ff82a..757e2cd2 100644
+index 100230d6..9f6215fc 100644
 --- a/test/standalone.test.mjs
 +++ b/test/standalone.test.mjs
-@@ -78,6 +78,7 @@ const WITHOUT_COMMAND_LINE = {
-   zarro: 'interactive OME-Zarr viewer: it has no batch output',
-   nesvor: 'needs CUDA; its standalone form is the neurodesk-compute server',
+@@ -80,6 +80,7 @@ const WITHOUT_COMMAND_LINE = {
    dicomview: 'interactive DICOM browser: dcm2niix and dicompare already ship as command lines',
-+  'normative-dwi': 'the batch equivalent is proc_nm\'s normative step (Python, PCNtoolkit); a packaged command line waits on a public model store',
+   degibbs: 'the degibbs command line follows its app, as noddi\'s does (docs/architecture/dwi-microstructure-design.md)',
+   noddi: 'the noddi command line is the next step of docs/architecture/dwi-microstructure-design.md; the app ships first',
++  'normative-dwi': 'no public batch equivalent yet (PCNtoolkit predict on the same models); a packaged command line waits on a public model store',
    fastprep: 'exes/fastprep drives separately installed niimath, brainchop, greedy-rs, synthsr, topofit and glm; a bundled release waits on packaging those (TopoFit licence pending)',
  };
  

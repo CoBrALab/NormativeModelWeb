@@ -28,6 +28,7 @@ export function serveStore(root, port = 0) {
     } catch {
       return response.writeHead(400).end();
     }
+    if (pathname.includes("\0")) return response.writeHead(400).end();
     const path = storePath(base, pathname);
     const stat = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
     if (!stat?.isFile()) return response.writeHead(404).end();

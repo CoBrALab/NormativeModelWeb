@@ -45,6 +45,8 @@ test("malformed percent-encoding is a 400, not a crash", async () => {
   const server = await serveStore(dir);
   try {
     assert.equal((await get(server.address().port, "/%E0%A4%A")).status, 400);
+    assert.equal((await get(server.address().port, "/%00")).status, 400);
+    assert.equal((await get(server.address().port, "/a%00b/zarr.json")).status, 400);
     assert.equal((await get(server.address().port, "/")).status, 404, "still serving afterwards");
   } finally {
     server.close();

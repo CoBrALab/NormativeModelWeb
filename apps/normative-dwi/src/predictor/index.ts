@@ -3,7 +3,7 @@
 // (WebGPU float32). createPredictor picks one; a GPU that fails or is lost
 // hands the marker, and every later one, to the CPU.
 import type { Covariates, MarkerParams, ZmapResult } from "../model.ts";
-import { zmapCpuAsync } from "./kernel.ts";
+import { sexColumn, zmapCpuAsync } from "./kernel.ts";
 import { createGpuZmap, supportsDesign, type GpuZmap } from "./webgpu.ts";
 
 export type PredictorKind = "cpu" | "gpu";
@@ -37,6 +37,10 @@ export function gpuPredictor(gpu: GpuZmap, onFallback: (reason: string) => void 
       return failed || gpu.lostReason() ? "cpu" : "gpu";
     },
     async zmap(params, covariates, y, signal) {
+      // Input errors are not GPU failures: raise them before the GPU is tried,
+      // so they cannot switch the session to the CPU.
+      if (y.length !== params.nVox) throw new Error(`Expected ${params.nVox} values, got ${y.length}`);
+      sexColumn(params, covariates);
       const lost = gpu.lostReason();
       if (lost) fallBack(lost);
       if (!failed && supportsDesign(params)) {

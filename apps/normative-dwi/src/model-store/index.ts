@@ -60,7 +60,9 @@ function baseStore(source: StoreSource): { store: Readable; label: string } {
   switch (source.kind) {
     case "url": {
       const url = source.url.replace(/\/+$/, "");
-      return { store: new zarr.FetchStore(url, { fetch: cachingFetch() }), label: url };
+      // Suffix ranges read a shard's index in one request (no HEAD first); the
+      // store format requires hosts to support them.
+      return { store: new zarr.FetchStore(url, { fetch: cachingFetch(), useSuffixRequest: true }), label: url };
     }
     case "directory":
       return { store: directoryStore(source.handle), label: source.handle.name };
@@ -145,6 +147,18 @@ export async function openModelStore(source: StoreSource): Promise<ModelStore> {
       out[field.key] = target;
     }
 
+    // Each be_map entry of a modelled voxel picks a one-hot design column; one
+    // out of range would silently overwrite another coefficient (or index past
+    // it on the GPU). Unmodelled voxels hold the fill value (-1 in real stores).
+    const beMap = out.beMap as Int16Array;
+    const hasModel = out.hasModel as Uint8Array;
+    for (let v = 0; v < nVox; v++) {
+      if (!hasModel[v]) continue;
+      for (let c = 0; c < dims.nBe; c++) {
+        const column = beMap[v * dims.nBe + c];
+        if (column < 0 || column >= dims.nBe) throw new Error(`${marker}/be_map: voxel ${v} names design column ${column}, outside 0–${dims.nBe - 1}`);
+      }
+    }
     return {
       marker,
       nVox,

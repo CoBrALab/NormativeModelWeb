@@ -30,7 +30,7 @@ export interface Grid {
 
 /**
  * One marker's voxel models, struct-of-arrays, row j = store voxel j.
- * Layout and meaning follow nmzarr format 0.1 (proc_nm/opt_inference docs/reference/format.md).
+ * Layout and meaning follow nmzarr format 0.1 (CoBrALab proc_nm, not public yet: opt_inference docs/reference/format.md).
  */
 export interface MarkerParams {
   marker: Marker;

@@ -2,12 +2,34 @@
 // the local fixtures from tools/make_fixtures.py, which hold UK Biobank-derived
 // parameters and are never committed; the other tests use made-up parameters.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { bsplineBasis, zmapCpu } from "../src/predictor/kernel.ts";
 import { FIXTURE_MARKERS, fixtureParams, fixturesAvailable, loadFixture, sexOf } from "./fixtures.js";
 import { syntheticMap, syntheticModel, syntheticParams } from "./synthetic-store.js";
 
 const TOLERANCE = 1e-6;
+
+// Committed and data-free: PCNtoolkit fitted these voxel models to simulated
+// data and scored the cases itself (tools/make_synthetic_reference.py), so CI
+// checks the kernel against an independent implementation on every run.
+test("CPU z matches PCNtoolkit on its own fits to simulated data (committed reference)", () => {
+  const reference = JSON.parse(readFileSync(new URL("./reference/synthetic-pcn.json", import.meta.url), "utf8"));
+  assert.ok(reference.voxels.some((r) => r.params.be_map[0] === 1), "includes swapped Sex columns");
+  let worst = 0;
+  let cases = 0;
+  for (const record of reference.voxels) {
+    const params = fixtureParams(reference, [record]);
+    for (const c of record.cases) {
+      const { z, valid, clamped } = zmapCpu(params, { age: c.age, sex: sexOf(c.sex) }, [c.y]);
+      assert.equal(valid[0], 1);
+      assert.equal(clamped, c.clamped ? 1 : 0);
+      worst = Math.max(worst, Math.abs(z[0] - c.z));
+      cases++;
+    }
+  }
+  assert.ok(cases >= 100 && worst < TOLERANCE, `max |Δz| ${worst} over ${cases} cases`);
+});
 const skip = fixturesAvailable() ? false : "no local fixtures (run tools/make_fixtures.py)";
 
 for (const marker of FIXTURE_MARKERS) {

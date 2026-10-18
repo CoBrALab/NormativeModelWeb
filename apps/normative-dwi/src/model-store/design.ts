@@ -19,10 +19,21 @@ const REGRESSION: Record<string, unknown> = {
 
 const BASIS_MEAN: Record<string, unknown> = { basis_name: "bspline", degree: 3, include_linear: false };
 
+// Options a writer may leave out: absent means PCNtoolkit's default, which is
+// the value the kernel needs. Every other expected key must be present.
+const ABSENT_MEANS: Record<string, unknown> = {
+  fixed_effect_slope: false,
+  fixed_effect_var: false,
+  ard: false,
+  include_linear: false,
+  y_transform: null,
+};
+
 function mismatches(actual: Attrs | undefined, expected: Record<string, unknown>, prefix: string): string[] {
+  const value = (key: string) => (actual && key in actual ? actual[key] : ABSENT_MEANS[key]);
   return Object.entries(expected)
-    .filter(([key, value]) => actual?.[key] !== value)
-    .map(([key, value]) => `${prefix}${key} is ${JSON.stringify(actual?.[key])}, expected ${JSON.stringify(value)}`);
+    .filter(([key, wanted]) => value(key) !== wanted)
+    .map(([key, wanted]) => `${prefix}${key} is ${actual && key in actual ? JSON.stringify(actual[key]) : "missing"}, expected ${JSON.stringify(wanted)}`);
 }
 
 /** Throws unless the marker group was fitted with the design kernel.ts implements. */

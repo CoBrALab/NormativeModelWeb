@@ -19,9 +19,9 @@ import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, clampingNotice, guessMarker, i
 import { MARKERS, type Covariates, type Marker } from "./model.ts";
 import { openModelStore, type ModelStore, type StoreSource } from "./model-store/index.ts";
 import { filesDirectory } from "./model-store/directory-store.ts";
-import { clearModelCache } from "./model-store/persistent-cache.ts";
+import { clearModelCache, pruneOldCaches } from "./model-store/persistent-cache.ts";
 import { createPredictor, type Predictor, type PredictorKind } from "./predictor/index.ts";
-import { displayNifti, gatherToStore, gridMapping, loadSubjectMap, scatterToNifti, type SubjectMap } from "./subject-image/index.ts";
+import { displayNifti, gatherToStore, gridMapping, loadSubjectMap, scatterToNifti, voxelAtMm, type SubjectMap } from "./subject-image/index.ts";
 import { createZViewer } from "./viewer.ts";
 import examples from "../examples.json";
 
@@ -70,7 +70,8 @@ interface ZmapOutput {
   display: File;
   /** True z on the map's grid (NaN where not scored), for the viewer's readout. */
   values: Float32Array;
-  dims: [number, number, number];
+  /** World position (mm) → the map voxel there (index into `values`, centre in mm), or null. */
+  locate: ReturnType<typeof voxelAtMm>;
 }
 
 let inputs: InputMap[] = [];
@@ -109,10 +110,12 @@ const results = createResultList<ZmapOutput>({
 async function showOutput(marker: string) {
   const output = outputs[marker];
   if (!output) return;
-  const [nx, ny] = output.dims;
-  await viewer.show(output.display, ([i, j, k]) => {
-    const value = output.values[i + nx * (j + ny * k)];
-    return Number.isFinite(value) ? `${marker} z = ${value.toFixed(2)}` : `${marker} not scored`;
+  await viewer.show(output.display, (mm) => {
+    const voxel = output.locate(mm);
+    if (!voxel) return "";
+    const value = output.values[voxel.index];
+    const where = `${voxel.centre.map((v) => Number(v.toFixed(1))).join(", ")} mm`;
+    return `${where} · ${Number.isFinite(value) ? `${marker} z = ${value.toFixed(3)}` : `${marker} not scored`}`;
   });
   $("emptyState").hidden = true;
   status(`Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`);
@@ -142,10 +145,12 @@ function renderMapList() {
       };
       field.append(label, select);
       if (input.problem) {
-        const hint = document.createElement("p");
-        hint.className = "nd-hint";
-        hint.textContent = input.problem;
-        field.append(hint);
+        const message = document.createElement("p");
+        message.className = "nd-message warning";
+        message.id = `marker-${index}-problem`;
+        message.textContent = input.problem;
+        select.setAttribute("aria-describedby", message.id);
+        field.append(message);
       }
       return field;
     }),
@@ -164,11 +169,16 @@ function resetOutputs() {
 }
 
 /** Read maps and add them to the list; a newer map of a marker replaces the older one. Returns the maps read. */
+/** Bumped by clearMaps: a load that started before a clear must not add to the new list. */
+let loadGeneration = 0;
+
 async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]> {
   if (running) throw new Error("Wait for the current run to finish, or cancel it.");
+  const generation = loadGeneration;
   const loaded: InputMap[] = [];
   for (const file of files) {
     signal?.throwIfAborted();
+    if (generation !== loadGeneration) return [];
     try {
       const map = await loadSubjectMap(file.name, await file.arrayBuffer());
       loaded.push({ file, map, marker: guessMarker(file.name), problem: store ? gridProblem(map, store) : undefined });
@@ -177,6 +187,7 @@ async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]
     }
   }
   signal?.throwIfAborted();
+  if (generation !== loadGeneration || running) return [];
   // One map per marker: within this batch the last file wins, and it replaces an earlier map.
   const seen = new Set<Marker>();
   const duplicates: string[] = [];
@@ -191,7 +202,9 @@ async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]
   inputs = [...inputs.filter((i) => !replaced.includes(i)), ...loaded];
   resetOutputs();
   renderMapList();
-  if (replaced.length || duplicates.length) reportFiles();
+  // The page drop records what an input holds; tell it after every change
+  // (drop-zone adds never fire `change`, and failed files are not in the list).
+  reportFiles();
   const unnamed = loaded.filter((i) => !i.marker).length;
   if (duplicates.length) status(`Same marker twice; set to "Not used": ${duplicates.join(", ")}`, true);
   else if (loaded.length) status(unnamed ? `${loaded.length} map(s) loaded · choose the marker for ${unnamed}` : `${loaded.length} map(s) loaded`);
@@ -200,18 +213,22 @@ async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]
 }
 
 function clearMaps() {
+  if (running) return; // e.g. the status-bar Undo after a page drop, during a run
+  loadGeneration++;
   inputs = [];
   resetOutputs();
   renderMapList();
   refreshActions();
 }
 
+/** Why a map cannot be scored against the store (without its file name, shown beside it), if it cannot. */
 function gridProblem(map: SubjectMap, modelStore: ModelStore): string | undefined {
   try {
     gridMapping(map, modelStore.grid);
     return undefined;
   } catch (error) {
-    return (error as Error).message;
+    const message = (error as Error).message;
+    return message.startsWith(`${map.name}: `) ? message.slice(map.name.length + 2) : message;
   }
 }
 
@@ -290,7 +307,7 @@ async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal):
       file: new File([scatterToNifti(z, valid, mapping, input.map, description) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
       display: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT) as Uint8Array<ArrayBuffer>], name.replace(/\.gz$/, "")),
       values,
-      dims: [nx, ny, nz],
+      locate: voxelAtMm(input.map.header),
     };
     log.log(`${input.marker}: ${scored} voxels scored on ${kind.toUpperCase()}`, "info");
     progress.setProgress(share(1));
@@ -303,7 +320,7 @@ async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal):
   const engines = [...kinds].map((kind) => kind.toUpperCase()).join("+");
   progress.end(`${usable.length} z-map(s) ready in ${seconds} s`);
   const skippedNote = skipped.length ? ` · skipped ${skipped.map((i) => i.marker).join(", ")} (see log)` : "";
-  status(notices[0] ?? `${usable.length} z-map(s) ready · ${engines} · ${seconds} s${skippedNote}`, skipped.length > 0);
+  status(`${notices[0] ?? `${usable.length} z-map(s) ready · ${engines} · ${seconds} s`}${skippedNote}`, skipped.length > 0);
   return {
     artifacts: Object.values(outputs).map((o) => ({ role: "zmap", file: o.file })),
     provenance: {
@@ -352,6 +369,13 @@ $("cancelButton").onclick = () => {
   running?.abort();
 };
 for (const id of ["age", "sex"]) $(id).addEventListener("input", refreshActions);
+/** Use a store URL and show it in the Advanced settings. */
+function useStoreUrl(url: string) {
+  ($("storeUrl") as HTMLInputElement).value = url;
+  $("storeInfo").hidden = true;
+  setStoreSource({ kind: "url", url });
+}
+
 $("storeUrl").addEventListener("change", () => {
   const url = ($("storeUrl") as HTMLInputElement).value.trim();
   setStoreSource(url ? { kind: "url", url } : DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null);
@@ -360,6 +384,7 @@ $("storeFolder").addEventListener("change", (event) => {
   const files = Array.from((event.target as HTMLInputElement).files ?? []);
   if (!files.length) return;
   setStoreSource({ kind: "directory", handle: filesDirectory(files) });
+  ($("storeUrl") as HTMLInputElement).value = "";
   $("storeInfo").hidden = false;
   $("storeInfo").textContent = `${files[0].webkitRelativePath.split("/")[0]} · ${files.length} files`;
 });
@@ -380,7 +405,7 @@ $("imageInput").addEventListener("change", (event) => {
 bindFileDrop($("dropZone"), (files) => {
   exampleControl.cancel();
   void files.then((f) => loadMaps(f)).catch((error) => status((error as Error).message, true));
-});
+}, document, () => Boolean(running));
 
 const exampleControl = createExampleSelector({
   examples,
@@ -402,10 +427,14 @@ registerAppAutomation({
     zmap: async ({ inputs: given, parameters, signal }) => {
       const cov = parseCovariates(String(parameters.age ?? ""), String(parameters.sex ?? ""));
       if (!cov) throw new Error("zmap needs age (years, > 0) and sex (female or male)");
-      const url = typeof parameters.storeUrl === "string" && parameters.storeUrl ? parameters.storeUrl : DEFAULT_STORE_URL;
-      if (!url) throw new Error("zmap needs storeUrl until a default model store is published");
       if (running) throw new Error("A run is already in progress.");
-      if (storeSource?.kind !== "url" || storeSource.url !== url) setStoreSource({ kind: "url", url });
+      // storeUrl, else the store already chosen in the page (URL or folder), else the default.
+      const url = typeof parameters.storeUrl === "string" && parameters.storeUrl ? parameters.storeUrl : null;
+      if (url) {
+        if (storeSource?.kind !== "url" || storeSource.url !== url) useStoreUrl(url);
+      } else if (!storeSource) {
+        throw new Error("zmap needs storeUrl until a default model store is published");
+      }
       clearMaps();
       await loadMaps(given.maps as File[], signal);
       reportFiles();
@@ -423,5 +452,6 @@ window.addEventListener("pagehide", () => {
   predictor?.instance.dispose();
 });
 
+void pruneOldCaches();
 await viewer.attach().catch((error) => status(`Viewer unavailable: ${(error as Error).message}`, true));
 refreshActions();

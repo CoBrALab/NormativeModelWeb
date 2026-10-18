@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "fflate";
 import { serveStore } from "./serve-store.mjs";
-import { syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../test/synthetic-store.js";
+import { assertHardwareAdapter, hardwareGpu, readAdapterInfo } from "../../../test-utils/hardware-gpu.mjs";
+import { storeVoxelAt, syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../test/synthetic-store.js";
 import { zmapCpu } from "../src/predictor/kernel.ts";
 
 const model = syntheticModel();
@@ -84,7 +85,11 @@ for (const compute of ["cpu", "gpu"]) {
     await expect(page.locator("#statusText")).not.toHaveClass(/error/);
     const log = await page.locator("#technicalLog").textContent();
     const usedGpu = /scored on GPU/.test(log);
-    if (compute === "gpu" && process.env.NEURODESK_HARDWARE_GPU === "1") expect(usedGpu).toBe(true);
+    if (compute === "gpu" && hardwareGpu) {
+      // On the hardware-GPU runner the GPU must have scored, on a real (not software) adapter.
+      expect(usedGpu).toBe(true);
+      assertHardwareAdapter(await readAdapterInfo(page));
+    }
     if (compute === "cpu") expect(usedGpu).toBe(false);
 
     const rows = page.locator("#resultList").getByRole("button", { name: "Download", exact: true });
@@ -141,32 +146,102 @@ test("a map on the wrong grid is skipped and named; the others are still scored"
   await expect(page.locator("#resultList").getByRole("button", { name: "Download", exact: true })).toHaveCount(markers.length);
 });
 
-test("a newer map of a marker replaces the older one, and the readout reports its true z", async ({ page }, testInfo) => {
+test("a newer map of a marker replaces the older one", async ({ page }, testInfo) => {
   await prepare(page, "cpu");
   const again = testInfo.outputPath("sub-02_FA.nii");
-  const second = syntheticMap(model, "FA", 999);
-  await writeFile(again, second.bytes);
+  await writeFile(again, syntheticMap(model, "FA", 999).bytes);
   await page.locator("#imageInput").setInputFiles(again);
   await expect(page.locator("#mapList select")).toHaveCount(markers.length);
   await expect(page.locator("#mapList")).toContainText("sub-02_FA.nii");
   await expect(page.locator("#mapList")).not.toContainText("sub-01_FA.nii");
-  await runToEnd(page);
+});
 
-  await page.locator("#resultList").getByText("FA z-map").locator("xpath=..").getByRole("button", { name: "View", exact: true }).click();
-  await expect(page.locator("#statusText")).toContainText("Showing FA");
-  // Click off the starting crosshair (NiiVue reports only moves); the readout
-  // must give the unsaturated z of the voxel it names.
-  await page.locator("nd-viewer-toolbar").getByRole("button", { name: "Axial", exact: true }).click();
-  const box = await page.locator("#gl1").boundingBox();
-  await page.mouse.click(box.x + box.width / 2 + 90, box.y + box.height / 2 - 70);
-  await expect(page.locator("#location")).toContainText(/FA (z = -?\d|not scored)/);
-  const text = await page.locator("#location").textContent();
-  // The map is x-fastest: file voxel (a, b, c) is store voxel (i, j, k) = (c, b, a).
-  const [a, b, c] = text.match(/voxel (\d+),(\d+),(\d+)/).slice(1).map(Number);
-  const v = [...Array(model.nVox).keys()].find((n) => model.ijk[3 * n] === c && model.ijk[3 * n + 1] === b && model.ijk[3 * n + 2] === a);
-  const { z: zs, valid } = zmapCpu(syntheticParams(model, "FA"), subject, second.y);
-  if (v === undefined || !valid[v]) expect(text).toContain("FA not scored");
-  else expect(Number(text.match(/z = (-?[\d.]+)/)[1])).toBeCloseTo(zs[v], 2);
+for (const layout of ["ras", "minc", "las"]) {
+  test(`the readout gives the true z of the voxel under the crosshair (${layout} map)`, async ({ page }, testInfo) => {
+    const map = syntheticMap(model, "FA", 31, layout);
+    const path = testInfo.outputPath(`sub-03_${layout}_FA.nii`);
+    await writeFile(path, map.bytes);
+    await page.goto("./");
+    await page.locator("#imageInput").setInputFiles(path);
+    await page.locator("#age").fill(String(subject.age));
+    await page.locator("#sex").selectOption(subject.sex);
+    await page.locator("#advancedSettings > summary").click();
+    await page.locator("#compute").selectOption("cpu");
+    await page.locator("#storeUrl").fill(storeUrl);
+    await page.locator("#storeUrl").dispatchEvent("change");
+    await runToEnd(page);
+    await expect(page.locator("#statusText")).not.toHaveClass(/error/);
+    const { z, valid } = zmapCpu(syntheticParams(model, "FA"), subject, map.y);
+
+    await page.locator("nd-viewer-toolbar").getByRole("button", { name: "Axial", exact: true }).click();
+    const box = await page.locator("#gl1").boundingBox();
+    let scored = 0;
+    // NiiVue reports only moves of the crosshair, so each probe is a new position.
+    for (const [dx, dy] of [[90, -70], [-110, 40], [30, 95], [-60, -100], [140, 10]]) {
+      await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
+      await expect(page.locator("#location")).toContainText("FA");
+      const text = await page.locator("#location").textContent();
+      const centre = text.match(/^(-?[\d.]+), (-?[\d.]+), (-?[\d.]+) mm/).slice(1).map(Number);
+      const v = storeVoxelAt(model, centre);
+      if (v < 0 || !valid[v]) {
+        expect(text, `${layout} at ${centre}`).toContain("FA not scored");
+      } else {
+        expect(Number(text.match(/z = (-?[\d.]+)/)[1]), `${layout} at ${centre}`).toBeCloseTo(z[v], 3);
+        scored++;
+      }
+    }
+    expect(scored, "some probes land on scored voxels").toBeGreaterThan(0);
+  });
+}
+
+test.describe("persistent cache", () => {
+  // Playwright cannot route requests a service worker makes; the preview server
+  // sends the isolation headers itself, so the isolation worker is not needed.
+  test.use({ serviceWorkers: "block" });
+
+  test("a store at a pinned Hugging Face URL is read from the browser cache on the next visit", async ({ page }) => {
+    const base = `https://huggingface.co/datasets/test/webapps/resolve/${"c".repeat(40)}/store/`;
+    let requests = 0;
+    await page.route(`${base}**`, async (route) => {
+      requests++;
+      const request = route.request();
+      const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Range, Content-Length", "Cross-Origin-Resource-Policy": "cross-origin" };
+      let bytes;
+      try {
+        bytes = await readFile(join(dir, "store", decodeURIComponent(new URL(request.url()).pathname.slice(new URL(base).pathname.length))));
+      } catch {
+        return route.fulfill({ status: 404, headers: cors });
+      }
+      const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers().range ?? "");
+      if (!range) return route.fulfill({ status: 200, headers: cors, body: bytes });
+      const start = range[1] === "" ? Math.max(0, bytes.length - Number(range[2])) : Number(range[1]);
+      const end = range[1] === "" || range[2] === "" ? bytes.length - 1 : Math.min(Number(range[2]), bytes.length - 1);
+      return route.fulfill({ status: 206, headers: { ...cors, "Content-Range": `bytes ${start}-${end}/${bytes.length}` }, body: bytes.subarray(start, end + 1) });
+    });
+    const run = async () => {
+      await page.goto("./");
+      await page.locator("#imageInput").setInputFiles(maps.FA.path);
+      await page.locator("#age").fill(String(subject.age));
+      await page.locator("#sex").selectOption(subject.sex);
+      await page.locator("#advancedSettings > summary").click();
+      await page.locator("#compute").selectOption("cpu");
+      await page.locator("#storeUrl").fill(base);
+      await page.locator("#storeUrl").dispatchEvent("change");
+      await runToEnd(page);
+      await expect(page.locator("#statusText")).not.toHaveClass(/error/);
+    };
+    await run();
+    const first = requests;
+    expect(first).toBeGreaterThan(10);
+    requests = 0;
+    await run();
+    expect(requests, "the second visit reads every chunk from Cache Storage").toBe(0);
+    // Clearing the cache sends the next visit back to the network.
+    await page.locator("#clearCacheButton").click();
+    await expect(page.locator("#statusText")).toHaveText("Cached models cleared");
+    await run();
+    expect(requests).toBe(first);
+  });
 });
 
 test("the automation operation scores maps from a given store", async ({ page }) => {

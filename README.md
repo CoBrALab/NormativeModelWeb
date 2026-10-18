@@ -32,6 +32,7 @@ See the [app README](apps/normative-dwi/README.md) for the model store, the code
 | Check | What it compares | Tolerance | Result |
 |---|---|---|---|
 | `test/kernel.test.js` | CPU kernel vs PCNtoolkit's own `compute_zscores` on the training-zip models, ages first clamped to the training range (proc_nm's convention; native PCNtoolkit would extrapolate). 12,600 cases: random, shard-edge, swapped-Sex-column and worst-conditioned voxels (cond(A) up to 1.1e8), clamped ages, \|ys\| up to 12 | \|Δz\| < 1e-6 | ≤ 1.5e-13 |
+| `test/kernel.test.js` (committed, runs in CI) | CPU kernel vs PCNtoolkit on models it fitted to simulated data (`test/reference/synthetic-pcn.json`): 8 voxels, 4 with swapped Sex columns, 144 cases incl. clamped ages and \|ys\| up to 10 | \|Δz\| < 1e-6 | pass |
 | `test/kernel.test.js` | Cubic B-spline basis vs scipy, extrapolation included | 1e-12 | pass |
 | `test/model-store.test.js` | Parameters read from the real store reproduce the fixtures | \|Δz\| < 1e-6 | pass |
 | `test/end-to-end.test.js` | Whole brain: NIfTI in → z-map out vs `tools/make_reference_zmap.py` | rel. < 1e-6, same zero pattern | pass |
@@ -45,7 +46,7 @@ The oracle is the PCNtoolkit fork that saved the models (`gdevenyi/PCNToolkit@42
 
 ## Data
 
-The model store, the parity fixtures (`apps/normative-dwi/test/fixtures/`, gitignored) and the reference z-maps all derive from UK Biobank or from subjects. None of them is in this repository, and none may be committed. The tests that need them skip without them. The browser tests and CI use a generated store with random parameters instead.
+The model store, the parity fixtures (`apps/normative-dwi/test/fixtures/`, gitignored) and the reference z-maps all derive from UK Biobank or from subjects. None of them is in this repository, and none may be committed. The tests that need them skip without them. The browser tests and CI use a generated store with random parameters instead, and CI checks the kernel against PCNtoolkit's own fits to simulated data (`apps/normative-dwi/test/reference/`).
 
 ## Publishing the model store
 
@@ -71,9 +72,7 @@ cd /tmp/webapps-upstream && pnpm test:contracts && pnpm --filter normative-dwi b
 
 The upstream pull request is that tree's diff.
 
-On upstream `ad4c57c`, the root contract tests then pass except:
-- two that need the app's example (`app-examples` and `agentic-catalog`);
-- two that also fail on unmodified `main` in this environment (Playwright discovery for calmar and easy-mp2rage).
+On upstream `bfadef04` (the current pin), the root contract tests then pass except two that need the app's example (`app-examples` and `agentic-catalog`).
 
 Still open before the upstream PR:
 - a pinned example in `examples.json`, locked with `scripts/lock-example-assets.mjs`;

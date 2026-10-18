@@ -106,6 +106,24 @@ export function gridMapping(map: Pick<SubjectMap, "name" | "header">, grid: Grid
   return out;
 }
 
+/**
+ * The map voxel containing world position `mm`: its flat index in the map's
+ * own (file) order and its centre in mm, or null outside the image. Viewers
+ * report positions in world space; their voxel indices may be reoriented
+ * (NiiVue's are RAS), so the map is indexed from mm.
+ */
+export function voxelAtMm(header: NiftiHeader): (mm: ArrayLike<number>) => { index: number; centre: number[] } | null {
+  const toMm = affineMm(header);
+  const toVoxel = invert4(toMm);
+  const dims = [header.nx, header.ny, header.nz];
+  return (mm) => {
+    const p = toVoxel.map((row) => Math.round(row[0] * mm[0] + row[1] * mm[1] + row[2] * mm[2] + row[3]));
+    if (p.some((value, axis) => !(value >= 0 && value < dims[axis]))) return null;
+    const centre = toMm.map((row) => row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3]);
+    return { index: p[0] + dims[0] * (p[1] + dims[1] * p[2]), centre };
+  };
+}
+
 /** The map's values in store voxel order. */
 export function gatherToStore(map: SubjectMap, mapping: Int32Array): Float64Array {
   const y = new Float64Array(mapping.length);

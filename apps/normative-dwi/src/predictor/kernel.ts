@@ -1,6 +1,7 @@
 // Float64 z-score kernel: the reference implementation (docs/adr/0001).
 //
-// Reproduces PCNtoolkit 1.4 BLR prediction for the nmzarr "ukb_blr_agesex"
+// Reproduces PCNtoolkit 1.4.0 BLR prediction (fork gdevenyi/PCNToolkit@4219457,
+// not released) for the nmzarr "ukb_blr_agesex"
 // family (warped sinh-arcsinh, reparametrised; heteroskedastic noise on
 // [x, 1]; cubic B-spline mean basis; one-hot batch-effect intercepts):
 //
@@ -69,7 +70,7 @@ export function sexColumn(params: Pick<MarkerParams, "beLevelColumns">, covariat
 }
 
 /** Voxels scored between checks for cancellation in zmapCpuAsync (~5 ms of work). */
-const BLOCK = 16384;
+export const BLOCK = 16384;
 
 /**
  * Z-scores of `y` (one value per store voxel) for one subject.
@@ -83,11 +84,11 @@ export function zmapCpu(params: MarkerParams, covariates: Covariates, y: ArrayLi
 }
 
 /** zmapCpu in blocks, yielding to the event loop between them so `signal` can cancel. */
-export async function zmapCpuAsync(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal): Promise<ZmapResult> {
+export async function zmapCpuAsync(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal, block = BLOCK): Promise<ZmapResult> {
   const scorer = createScorer(params, covariates, y);
-  for (let start = 0; start < params.nVox; start += BLOCK) {
+  for (let start = 0; start < params.nVox; start += block) {
     signal?.throwIfAborted();
-    scorer.score(start, Math.min(start + BLOCK, params.nVox));
+    scorer.score(start, Math.min(start + block, params.nVox));
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   signal?.throwIfAborted();

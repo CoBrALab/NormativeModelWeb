@@ -66,3 +66,26 @@ test("a lost device is not used at all", async () => {
   assert.equal(fake.gpu.calls, 0);
   assert.deepEqual(reasons, ["lost: destroyed"]);
 });
+
+test("blocked CPU scoring matches in many blocks and can be cancelled between them", async () => {
+  const { zmapCpuAsync } = await import("../src/predictor/kernel.ts");
+  const expected = zmapCpu(params, subject, y);
+  const many = await zmapCpuAsync(params, subject, y, undefined, 97);
+  assert.deepEqual(many.z, expected.z);
+  // Abort after the first yield: the run must stop before finishing.
+  const controller = new AbortController();
+  const run = zmapCpuAsync(params, subject, y, controller.signal, 64);
+  setTimeout(() => controller.abort(), 0);
+  await assert.rejects(run, { name: "AbortError" });
+});
+
+test("input errors do not switch the GPU off", async () => {
+  const fake = fakeGpu();
+  const reasons = [];
+  const predictor = gpuPredictor(fake.gpu, (reason) => reasons.push(reason));
+  await assert.rejects(predictor.zmap(params, subject, [1, 2, 3]), /Expected \d+ values, got 3/);
+  await assert.rejects(predictor.zmap({ ...params, beLevelColumns: ["Site=a", "Site=b"] }, subject, y), /no batch-effect level/);
+  assert.deepEqual(reasons, []);
+  assert.equal(predictor.kind, "gpu");
+  assert.equal((await predictor.zmap(params, subject, y)).kind, "gpu");
+});
