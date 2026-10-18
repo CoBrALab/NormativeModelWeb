@@ -72,7 +72,9 @@ cd /tmp/webapps-upstream && pnpm test:contracts && pnpm --filter normative-dwi b
 
 The upstream pull request is that tree's diff.
 
-On upstream `bfadef04` (the current pin), the root contract tests then pass except two that need the app's example (`app-examples` and `agentic-catalog`).
+On upstream `bfadef04` (the current pin), the root contract tests then pass (678/682), except:
+- two that need the app's example (`app-examples` and `agentic-catalog`);
+- two that fail on unmodified `bfadef04` in this environment too (Playwright discovery for calmar and easy-mp2rage).
 
 Still open before the upstream PR:
 - a pinned example in `examples.json`, locked with `scripts/lock-example-assets.mjs`;
