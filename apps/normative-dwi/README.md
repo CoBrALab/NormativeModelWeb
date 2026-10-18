@@ -6,7 +6,7 @@ Normative DWI scores one person's diffusion microstructure maps against voxelwis
 - **Models:** a model store in nmzarr format 0.1 (Zarr v3), such as `ukb_blr_agesex`. Each voxel and marker has a PCNtoolkit 1.4.0 (fork gdevenyi/PCNToolkit@4219457, not released) Bayesian linear regression with a sinh-arcsinh warp, age-dependent noise, a cubic B-spline in age, and sex as a batch effect. The app refuses a store fitted with any other design.
 - **Output:** `<MARKER>_zscore.nii.gz` on the input's grid, with NIfTI intent 5 (z-score). Voxels that were not scored are written as 0 ([ADR-0002](docs/adr/0002-missing-voxels-written-as-zero.md)).
 - **Ages:** ages outside a voxel's training range (about 45–81) are scored at its nearest end, as the models' reference pipeline (CoBrALab proc_nm, not public yet) does, and the status line says so.
-- **Compute:** the CPU path (float64) is the reference and reproduces PCNtoolkit to better than 1e-6. The GPU path (WebGPU, float32) is tested to agree with it within 1e-3 ([ADR-0001](docs/adr/0001-cpu-f64-reference-gpu-f32.md)).
+- **Compute:** the CPU path (float64) is the default and the reference, and reproduces PCNtoolkit to better than 1e-6. The GPU path (WebGPU, float32; Advanced settings) is tested to agree with it within 1e-3 ([ADR-0001](docs/adr/0001-cpu-f64-reference-gpu-f32.md)).
 
 Terms are defined in [docs/GLOSSARY.md](docs/GLOSSARY.md).
 

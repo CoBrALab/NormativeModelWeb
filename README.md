@@ -40,7 +40,7 @@ See the [app README](apps/normative-dwi/README.md) for the model store, the code
 | `e2e/synthetic.spec.js` | Whole UI on a generated store, CPU and GPU, downloads vs the float64 kernel | 1e-6 / 1e-3 | 0 / ≤ 2.7e-6 |
 | `e2e/app.spec.js` | Whole UI on a real subject, CPU and GPU, downloads vs reference | 1e-6 / 1e-3 | 0 / ≤ 9.0e-5 |
 
-The GPU tolerance is 1e-3 everywhere; its relative form is |Δz| / max(1, |z|). The measured GPU values come from a software GPU (Chromium's SwiftShader); CI's macOS runner repeats `e2e/synthetic.spec.js` on a real GPU.
+The GPU tolerance is 1e-3 everywhere; its relative form is |Δz| / max(1, |z|). The measured GPU values come from a software GPU (Chromium's SwiftShader), which is also what CI uses. The CPU is the default compute. To check a real GPU, run the specs with `NEURODESK_HARDWARE_GPU=1` on a machine that has one; `synthetic.spec.js` then asserts a hardware adapter.
 
 The oracle is the PCNtoolkit fork that saved the models (`gdevenyi/PCNToolkit@4219457`). The latest PCNtoolkit release on PyPI (1.3.0) cannot score them: it builds a 10-column design where the saved models have 9 weights (`ValueError: shapes (36,10) and (9,) not aligned`). So there is no cross-check against a released version yet.
 

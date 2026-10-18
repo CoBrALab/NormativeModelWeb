@@ -440,7 +440,7 @@ registerAppAutomation({
       reportFiles();
       const unnamed = inputs.filter((i) => !i.marker).map((i) => i.file.name);
       if (unnamed.length) throw new Error(`Cannot tell the marker of ${unnamed.join(", ")} from its name`);
-      const compute = parameters.compute === "cpu" ? "cpu" : "gpu";
+      const compute = parameters.compute === "gpu" ? "gpu" : "cpu";
       return guardedRun(cov, compute, signal);
     },
   },

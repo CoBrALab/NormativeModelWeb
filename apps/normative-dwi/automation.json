@@ -40,11 +40,11 @@
         "compute": {
           "type": "string",
           "enum": [
-            "gpu",
-            "cpu"
+            "cpu",
+            "gpu"
           ],
-          "default": "gpu",
-          "description": "GPU (WebGPU, single precision; falls back to CPU) or CPU (double precision reference)"
+          "default": "cpu",
+          "description": "CPU (double precision, the reference) or GPU (WebGPU, single precision; falls back to CPU)"
         },
         "storeUrl": {
           "type": "string",
