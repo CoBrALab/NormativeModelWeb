@@ -12,8 +12,16 @@ export const APP = Object.freeze({
  */
 export const DEFAULT_STORE_URL: string | null = null;
 
-/** z-map display range (symmetric, saturating), as in the proc_nm figures. */
+/** z-map display range (symmetric, saturating), as in the proc_nm figures; the default of the viewer's ±|z| box. */
 export const Z_DISPLAY_LIMIT = 3;
+/** Bounds of a user-set display limit. */
+export const Z_LIMIT_RANGE = Object.freeze({ min: 0.5, max: 20 });
+
+/** A display limit (|z| where the colour saturates) from the viewer's box, or null unless within Z_LIMIT_RANGE. */
+export function parseZLimit(text: string): number | null {
+  const value = Number(text.trim());
+  return text.trim() !== "" && Number.isFinite(value) && value >= Z_LIMIT_RANGE.min && value <= Z_LIMIT_RANGE.max ? value : null;
+}
 
 const MARKER_TOKENS: Record<string, Marker> = {
   FA: "FA",

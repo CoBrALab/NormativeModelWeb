@@ -269,6 +269,37 @@ test("a structural background sits under the z-map, and the readout still gives 
   await expect(page.locator("#statusText")).toContainText("z-map · colour saturates");
 });
 
+test("the ±|z| box sets where the colour saturates, for display only", async ({ page }) => {
+  await prepare(page, "cpu");
+  await runToEnd(page);
+  const box = page.locator("#zLimit");
+  const canvas = page.locator("#gl1");
+  await expect(box).toHaveValue("3");
+  const atThree = await canvas.screenshot();
+
+  await box.fill("1");
+  await box.dispatchEvent("change");
+  await expect(page.locator("#statusText")).toContainText("Showing FA z-map · colour saturates at |z| = 1");
+  expect(Buffer.compare(await canvas.screenshot(), atThree), "a lower limit changes the view").not.toBe(0);
+
+  await box.fill("0");
+  await box.dispatchEvent("change");
+  await expect(page.locator("#statusText")).toHaveClass(/error/);
+  await expect(page.locator("#statusText")).toContainText("must be a |z| from 0.5 to 20; kept 1");
+  await expect(box).toHaveValue("1");
+
+  // Other markers use the same limit; the download keeps the true values.
+  await page.locator("#resultList").getByRole("button", { name: "View", exact: true }).nth(1).click();
+  await expect(page.locator("#statusText")).toContainText("colour saturates at |z| = 1");
+  const pending = page.waitForEvent("download");
+  await page.locator("#resultList").getByRole("button", { name: "Download", exact: true }).first().click();
+  const download = await pending;
+  const { data } = await readZmap(download);
+  const expected = expectedVolume(download.suggestedFilename().replace("_zscore.nii.gz", ""));
+  expect(data.every((value, i) => value === expected[i])).toBe(true);
+  expect(expected.some((value) => Math.abs(value) > 1), "the map has |z| beyond the display limit").toBe(true);
+});
+
 test("a background outside the maps' field of view is refused", async ({ page }, testInfo) => {
   const path = testInfo.outputPath("elsewhere_T1w.nii");
   await writeFile(path, syntheticStructural(200));

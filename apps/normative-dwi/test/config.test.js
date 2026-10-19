@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { APP, clampingNotice, guessMarker, parseCovariates, trainingRange, zmapFileName } from "../src/config.ts";
+import { APP, clampingNotice, guessMarker, parseCovariates, parseZLimit, trainingRange, zmapFileName } from "../src/config.ts";
 
 test("app id is lowercase kebab-case and config is frozen", () => {
   assert.match(APP.id, /^[a-z][a-z0-9-]*$/);
@@ -46,4 +46,9 @@ test("covariates need a plausible age and a sex", () => {
   for (const [age, sex] of [["", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
     assert.equal(parseCovariates(age, sex), null, `${age}/${sex}`);
   }
+});
+
+test("the display limit is a |z| between 0.5 and 20", () => {
+  for (const [text, limit] of [["3", 3], [" 2.5 ", 2.5], ["0.5", 0.5], ["20", 20], ["1e1", 10]]) assert.equal(parseZLimit(text), limit, text);
+  for (const text of ["", " ", "0", "-3", "0.4", "21", "abc", "NaN", "Infinity"]) assert.equal(parseZLimit(text), null, text);
 });

@@ -15,7 +15,7 @@ import {
 } from "@neurodesk/webapp-components/ui";
 import { downloadFile } from "@neurodesk/webapp-components/file-io/download";
 import { registerAppAutomation } from "@neurodesk/webapp-components/automation";
-import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, clampingNotice, guessMarker, isMarker, parseCovariates, trainingRange, zmapFileName } from "./config.ts";
+import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, Z_LIMIT_RANGE, clampingNotice, guessMarker, isMarker, parseCovariates, parseZLimit, trainingRange, zmapFileName } from "./config.ts";
 import { MARKERS, type Covariates, type Marker } from "./model.ts";
 import { openModelStore, type ModelStore, type StoreSource } from "./model-store/index.ts";
 import { filesDirectory } from "./model-store/directory-store.ts";
@@ -42,11 +42,16 @@ const viewer = createZViewer("gl1", (text) => ($("location").textContent = text)
 // shared Overlay slider (uniform opacity) and, beside it, opacity from |z|.
 const fromZControl = document.createElement("label");
 fromZControl.className = "nd-check nd-opacity-control";
-fromZControl.title = "Opacity from |z|: each voxel's opacity is |z|/3, full from |z| = 3. Off: the Overlay slider sets one opacity for the whole z-map.";
+fromZControl.title = "Opacity from |z|: each voxel's opacity is |z| divided by the ±|z| limit, full from the limit on. Off: the Overlay slider sets one opacity for the whole z-map.";
 fromZControl.innerHTML = `<input id="opacityFromZ" type="checkbox" checked disabled aria-label="Opacity from |z|" /> From |z|`;
+// Where the colour saturates (one value for ±z, so CET-D1 stays centred on 0).
+const limitControl = document.createElement("label");
+limitControl.className = "nd-opacity-control";
+limitControl.title = `Colour limit: z-scores of ±|z| and beyond take the colormap's end colours (${Z_LIMIT_RANGE.min}–${Z_LIMIT_RANGE.max}; default ${Z_DISPLAY_LIMIT}). Display only: the downloaded z-maps keep their values.`;
+limitControl.innerHTML = `±|z| <input id="zLimit" class="nd-window-input" type="number" min="${Z_LIMIT_RANGE.min}" max="${Z_LIMIT_RANGE.max}" step="0.5" value="${Z_DISPLAY_LIMIT}" aria-label="Colour limit, |z|" />`;
 const toolbar = createViewerToolbar({
   window: false, overlay: true, colormap: false, download: false, screenshot: false,
-  actions: [fromZControl],
+  actions: [limitControl, fromZControl],
   views: (["multiplanar", "axial", "coronal", "sagittal"] as const).map((id) => ({
     id,
     label: id === "multiplanar" ? "3-Plane" : id[0].toUpperCase() + id.slice(1),
@@ -78,10 +83,8 @@ interface ZmapOutput {
   [key: string]: unknown;
   description: string;
   file: File;
-  display: File;
-  /** Display copy for drawing over a background (unscored voxels 0), and its |z| (the opacity). */
-  overlay: File;
-  magnitude: File;
+  /** Display copies saturated at a colour limit, made on first view at that limit. */
+  views: (limit: number) => DisplayCopies;
   /** The map's header: the grid the z-map is on. */
   header: SubjectMap["header"];
   /** True z on the map's grid (NaN where not scored), for the viewer's readout. */
@@ -97,6 +100,33 @@ let storeSource: StoreSource | null = DEFAULT_STORE_URL ? { kind: "url", url: DE
 let running: AbortController | null = null;
 let background: (BackgroundImage & { file: File }) | null = null;
 let shownMarker: string | null = null;
+/** |z| where the viewer's colour saturates, from the toolbar's ±|z| box. */
+let zLimit = Z_DISPLAY_LIMIT;
+
+interface DisplayCopies {
+  /** The z-map alone: unscored voxels below the range (displayNifti's default). */
+  zmap: File;
+  /** The z-map over a background (unscored voxels 0), and its |z| (the opacity). */
+  overlay: File;
+  magnitude: File;
+}
+
+/** Display copies of one z-map, saturated at the limit asked for; the last one is kept. */
+function displayCopies(z: Float64Array, valid: Uint8Array, mapping: Int32Array, map: SubjectMap, name: string): (limit: number) => DisplayCopies {
+  const magnitude = z.map(Math.abs);
+  let last: { limit: number; copies: DisplayCopies } | null = null;
+  const file = (bytes: Uint8Array, suffix: string) => new File([bytes as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, `${suffix}.nii`));
+  return (limit) => {
+    if (last?.limit !== limit) {
+      last = { limit, copies: {
+        zmap: file(displayNifti(z, valid, mapping, map, limit), ""),
+        overlay: file(displayNifti(z, valid, mapping, map, limit, 0), "_overlay"),
+        magnitude: file(displayNifti(magnitude, valid, mapping, map, limit, 0), "_abs"),
+      } };
+    }
+    return last.copies;
+  };
+}
 
 function status(message: string, error = false) {
   $("statusText").textContent = message;
@@ -134,7 +164,7 @@ async function showOutput(marker: string) {
     status(mismatch, true);
   }
   shownMarker = marker;
-  await viewer.show({ zmap: output.display, overlay: output.overlay, magnitude: output.magnitude, background: background?.file }, (mm) => {
+  await viewer.show({ ...output.views(zLimit), background: background?.file, limit: zLimit }, (mm) => {
     const voxel = output.locate(mm);
     if (!voxel) return "";
     const value = output.values[voxel.index];
@@ -146,11 +176,11 @@ async function showOutput(marker: string) {
 }
 
 function showingText(marker: string): string {
-  if (!background) return `Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`;
+  if (!background) return `Showing ${marker} z-map · colour saturates at |z| = ${zLimit}`;
   const { fromZ, opacity } = overlayStyle();
   return `Showing ${marker} z-map over ${background.name} · ${fromZ
-    ? `opacity grows with |z|, opaque and colour saturated at |z| = ${Z_DISPLAY_LIMIT}`
-    : `opacity ${Math.round(100 * opacity)}%, colour saturates at |z| = ${Z_DISPLAY_LIMIT}`}`;
+    ? `opacity grows with |z|, opaque and colour saturated at |z| = ${zLimit}`
+    : `opacity ${Math.round(100 * opacity)}%, colour saturates at |z| = ${zLimit}`}`;
 }
 
 /** The z-map's opacity over a background, from the controls. */
@@ -400,9 +430,7 @@ async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal):
     produced[input.marker] = {
       description: `${input.marker} z-map · ${scored.toLocaleString()} voxels`,
       file: new File([scatterToNifti(z, valid, mapping, input.map, description) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
-      display: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT) as Uint8Array<ArrayBuffer>], name.replace(/\.gz$/, "")),
-      overlay: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT, 0) as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, "_overlay.nii")),
-      magnitude: new File([displayNifti(z.map(Math.abs), valid, mapping, input.map, Z_DISPLAY_LIMIT, 0) as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, "_abs.nii")),
+      views: displayCopies(z, valid, mapping, input.map, name),
       header: input.map.header,
       values,
       locate: voxelAtMm(input.map.header),
@@ -511,6 +539,17 @@ bindFileDrop($("backgroundDrop"), (files) => {
   void files.then((f) => (f.length ? loadBackground(f) : undefined)).catch((error) => status((error as Error).message, true));
 }, undefined, () => Boolean(running));
 $("opacityFromZ").addEventListener("change", applyOverlayStyle);
+$("zLimit").addEventListener("change", () => {
+  const box = $("zLimit") as HTMLInputElement;
+  const limit = parseZLimit(box.value);
+  if (limit === null) {
+    status(`The colour limit must be a |z| from ${Z_LIMIT_RANGE.min} to ${Z_LIMIT_RANGE.max}; kept ${zLimit}`, true);
+    box.value = String(zLimit);
+    return;
+  }
+  zLimit = limit;
+  if (shownMarker && outputs[shownMarker]) void showOutput(shownMarker);
+});
 $("overlayOpacity").addEventListener("input", applyOverlayStyle);
 $("clearBackgroundButton").addEventListener("click", () => {
   setBackground(null);

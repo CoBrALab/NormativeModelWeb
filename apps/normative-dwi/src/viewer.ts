@@ -1,9 +1,9 @@
-// The z-map viewer, in the CET-D1 diverging colormap at ±3, saturating, as in
+// The z-map viewer, in the CET-D1 diverging colormap at ±3 (user-set), saturating, as in
 // proc_nm's figures (voxel_nm/Analyses/norm_zscores_common/norm_zscores_common_6_viz.R,
 // zscore_png). Alone, the z-map is drawn opaque on black (proc_nm draws on
 // white; on black, CET-D1's near-white middle stays distinct from unscored
 // voxels). Over a structural background image, each voxel's opacity is
-// min(1, |z|/3) by default, so near-normal voxels let the anatomy through, or
+// min(1, |z|/limit) by default, so near-normal voxels let the anatomy through, or
 // one uniform opacity chosen by the user.
 import NiiVue, { MULTIPLANAR_TYPE, SHOW_RENDER, SLICE_TYPE } from "@niivue/niivue";
 import { Z_DISPLAY_LIMIT } from "./config.ts";
@@ -22,6 +22,8 @@ export interface ZLayers {
   magnitude?: File;
   /** A structural image in the same world space, at any resolution. */
   background?: File;
+  /** |z| where the colour saturates (and, from |z|, opacity is full); the copies must be saturated at it. Default Z_DISPLAY_LIMIT. */
+  limit?: number;
 }
 
 /** How the z-map blends over a background: opacity from |z|, or `opacity` (0–1) everywhere. */
@@ -86,7 +88,7 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
       });
       attached = true;
     },
-    async show({ zmap, overlay, magnitude, background }, describe) {
+    async show({ zmap, overlay, magnitude, background, limit = Z_DISPLAY_LIMIT }, describe) {
       readout = describe;
       layered = false;
       if (background) {
@@ -103,10 +105,10 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
           url: overlay,
           name: overlay.name,
           colormap: ZMAP_COLORMAP,
-          calMin: -Z_DISPLAY_LIMIT - (2 * Z_DISPLAY_LIMIT) / 255,
-          calMax: Z_DISPLAY_LIMIT,
+          calMin: -limit - (2 * limit) / 255,
+          calMax: limit,
           opacity: 1,
-        }, { url: magnitude, name: magnitude.name, calMin: 0, calMax: Z_DISPLAY_LIMIT, opacity: 0, isColorbarVisible: false }]);
+        }, { url: magnitude, name: magnitude.name, calMin: 0, calMax: limit, opacity: 0, isColorbarVisible: false }]);
         layered = true;
         await applyStyle();
         return;
@@ -119,8 +121,8 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
         url: zmap,
         name: zmap.name,
         colormap: ZMAP_COLORMAP,
-        calMin: -Z_DISPLAY_LIMIT - (2 * Z_DISPLAY_LIMIT) / 255,
-        calMax: Z_DISPLAY_LIMIT,
+        calMin: -limit - (2 * limit) / 255,
+        calMax: limit,
         isTransparentBelowCalMin: true,
         opacity: 1,
       }]);
