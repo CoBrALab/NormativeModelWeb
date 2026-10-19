@@ -214,6 +214,8 @@ test("a structural background sits under the z-map, and the readout still gives 
   await expect(page.locator("#statusText")).toContainText("z-map(s) ready");
   const canvas = page.locator("#gl1");
   const alone = await canvas.screenshot();
+  await expect(page.locator("#opacityFromZ")).toBeDisabled();
+  await expect(page.locator("#overlayOpacity")).toBeDisabled();
 
   await page.locator("#backgroundInput").setInputFiles(path);
   await expect(page.locator("#backgroundInfo")).toContainText("sub-01_T1w.nii · 23×27×23 at 1×1×1 mm");
@@ -240,6 +242,7 @@ test("a structural background sits under the z-map, and the readout still gives 
   const fromZ = page.locator("#opacityFromZ");
   const slider = page.locator("#overlayOpacity");
   await expect(fromZ).toBeChecked();
+  await expect(fromZ).toBeEnabled();
   await expect(slider).toBeDisabled();
   const byZ = await canvas.screenshot();
   await fromZ.uncheck();
@@ -247,7 +250,7 @@ test("a structural background sits under the z-map, and the readout still gives 
   await expect(page.locator("#statusText")).toContainText("over sub-01_T1w.nii · opacity 100%");
   const full = await canvas.screenshot();
   expect(Buffer.compare(full, byZ), "uniform opacity differs from |z| opacity").not.toBe(0);
-  await slider.fill("30");
+  await slider.fill("0.3");
   await expect(page.locator("#overlayOpacityValue")).toHaveText("30%");
   await expect(page.locator("#statusText")).toContainText("opacity 30%");
   expect(Buffer.compare(await canvas.screenshot(), full), "the slider changes the view").not.toBe(0);
@@ -261,7 +264,8 @@ test("a structural background sits under the z-map, and the readout still gives 
 
   await page.locator("#clearBackgroundButton").click();
   await expect(page.locator("#backgroundInfo")).toBeHidden();
-  await expect(page.locator("#overlayControls")).toBeHidden();
+  await expect(fromZ).toBeDisabled();
+  await expect(slider).toBeDisabled();
   await expect(page.locator("#statusText")).toContainText("z-map · colour saturates");
 });
 

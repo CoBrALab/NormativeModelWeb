@@ -38,8 +38,15 @@ mountImagingWorkspace({
 });
 
 const viewer = createZViewer("gl1", (text) => ($("location").textContent = text));
+// The z-map's opacity over a background, top right as in the other apps: the
+// shared Overlay slider (uniform opacity) and, beside it, opacity from |z|.
+const fromZControl = document.createElement("label");
+fromZControl.className = "nd-check nd-opacity-control";
+fromZControl.title = "Opacity from |z|: each voxel's opacity is |z|/3, full from |z| = 3. Off: the Overlay slider sets one opacity for the whole z-map.";
+fromZControl.innerHTML = `<input id="opacityFromZ" type="checkbox" checked disabled aria-label="Opacity from |z|" /> From |z|`;
 const toolbar = createViewerToolbar({
-  window: false, overlay: false, colormap: false, download: false, screenshot: false,
+  window: false, overlay: true, colormap: false, download: false, screenshot: false,
+  actions: [fromZControl],
   views: (["multiplanar", "axial", "coronal", "sagittal"] as const).map((id) => ({
     id,
     label: id === "multiplanar" ? "3-Plane" : id[0].toUpperCase() + id.slice(1),
@@ -48,6 +55,10 @@ const toolbar = createViewerToolbar({
   })),
 });
 $("viewer").prepend(toolbar);
+// The toolbar scopes its controls' ids; name them for the rest of the app (as SynthSeg does).
+toolbar.control("overlayOpacity")!.id = "overlayOpacity";
+toolbar.control("overlayOpacityValue")!.id = "overlayOpacityValue";
+($("overlayOpacity") as HTMLInputElement).value = "1";
 const log = createConsole({ id: "technicalLog", resizable: true });
 $("viewer").append(log);
 const progress = new ProgressManager();
@@ -145,13 +156,14 @@ function showingText(marker: string): string {
 /** The z-map's opacity over a background, from the controls. */
 const overlayStyle = () => ({
   fromZ: ($("opacityFromZ") as HTMLInputElement).checked,
-  opacity: Number(($("overlayOpacity") as HTMLInputElement).value) / 100,
+  opacity: Number(($("overlayOpacity") as HTMLInputElement).value),
 });
 
-/** Apply the opacity controls: the slider is for uniform opacity only. */
+/** Apply the opacity controls: they act over a background only, and the slider is for uniform opacity. */
 function applyOverlayStyle() {
   const style = overlayStyle();
-  ($("overlayOpacity") as HTMLInputElement).disabled = style.fromZ;
+  ($("opacityFromZ") as HTMLInputElement).disabled = !background;
+  ($("overlayOpacity") as HTMLInputElement).disabled = !background || style.fromZ;
   $("overlayOpacityValue").textContent = `${Math.round(100 * style.opacity)}%`;
   void viewer.setOverlayOpacity(style)
     .then(() => { if (shownMarker && outputs[shownMarker] && background) status(showingText(shownMarker)); })
@@ -173,7 +185,7 @@ function setBackground(image: (BackgroundImage & { file: File }) | null) {
   $("backgroundInfo").hidden = !image;
   $("backgroundInfo").textContent = image ? `${image.name} · ${image.header.nx}×${image.header.ny}×${image.header.nz} at ${image.header.voxelSize.map((v) => Number(v.toFixed(2))).join("×")} mm` : "";
   $("clearBackgroundButton").hidden = !image;
-  $("overlayControls").hidden = !image;
+  applyOverlayStyle();
 }
 
 /** Show the background change: under the shown z-map, or alone before any run. */
