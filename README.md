@@ -11,6 +11,7 @@ This repository develops **Normative DWI** ([`apps/normative-dwi`](apps/normativ
 | `upstream/registry.patch` | Everything the app changes upstream outside `apps/normative-dwi`: registry entries, citations, test lists, desktop workflow, e2e test data, changeset |
 | `tools/link-upstream.sh` | Development wiring: installs the submodule, applies the patch, symlinks the app into it, installs this workspace |
 | `tools/export-upstream.sh` | Makes an upstream-ready tree (see Upstreaming) |
+| `benchmark/` | Speed and storage of the app's path (nmzarr store + kernel) against the training archives scored by PCNtoolkit, on synthetic models ([results](benchmark/RESULTS.md)). Not exported upstream |
 
 `scripts`, `site`, `test-utils` and `eslint.config.js` are symlinks into `vendor/webapps`, so the app's `../../…` paths resolve as they will upstream. The shared components package is a member of this workspace, so the app depends on it with `workspace:*`. `@playwright/test` is linked to the submodule's copy, so upstream's test helpers and the app's specs load a single Playwright.
 

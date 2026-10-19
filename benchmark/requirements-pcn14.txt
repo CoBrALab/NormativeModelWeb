@@ -1,0 +1,5 @@
+# PCNtoolkit 1.4.0 (fork gdevenyi/PCNToolkit@4219457), which fitted the models the app serves,
+# plus the nmzarr converter's packages (proc_nm opt_inference/requirements.txt).
+# Reference environment: /scratch/parent41/voxel_nm/.venv_pcnGabe (Python 3.12.4).
+-r ../apps/normative-dwi/tools/requirements.txt
+numcodecs==0.17.0

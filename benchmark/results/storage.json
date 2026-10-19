@@ -1,0 +1,237 @@
+{
+ "archives": {
+  "pcn13": {
+   "files": 31,
+   "bytes": 3762033689,
+   "json_entries": 482746,
+   "json_bytes_uncompressed": 3684631781,
+   "models": 241373,
+   "bytes_per_model": 15585.975602076454,
+   "voxel_json": {
+    "D": 10,
+    "json_bytes": 15246,
+    "json_bytes_predict_fields": 2330,
+    "json_bytes_other": 12916,
+    "a_has_lambda_sigma": true,
+    "float64_values_predict": 90,
+    "binary_bytes_predict": 720
+   }
+  },
+  "pcn14": {
+   "files": 31,
+   "bytes": 1902327615,
+   "json_entries": 482746,
+   "json_bytes_uncompressed": 1824925707,
+   "models": 241373,
+   "bytes_per_model": 7881.277586971202,
+   "voxel_json": {
+    "D": 9,
+    "json_bytes": 7550,
+    "json_bytes_predict_fields": 1935,
+    "json_bytes_other": 5615,
+    "a_has_lambda_sigma": false,
+    "float64_values_predict": 79,
+    "binary_bytes_predict": 632
+   }
+  }
+ },
+ "store": {
+  "bytes": 146828004,
+  "objects": 102,
+  "shared": {
+   "mask": {
+    "shape": [
+     97,
+     115,
+     97
+    ],
+    "dtype": "uint8",
+    "objects": 1,
+    "bytes": 14435,
+    "decoded_bytes": 1082035
+   },
+   "affine": {
+    "shape": [
+     4,
+     4
+    ],
+    "dtype": "float64",
+    "objects": 1,
+    "bytes": 46,
+    "decoded_bytes": 128
+   },
+   "ijk": {
+    "shape": [
+     304327,
+     3
+    ],
+    "dtype": "int32",
+    "objects": 5,
+    "bytes": 128487,
+    "decoded_bytes": 3651924
+   }
+  },
+  "markers": {
+   "FA": {
+    "bytes": 146619715,
+    "decoded_bytes": 221854383,
+    "arrays": {
+     "A_triu": {
+      "shape": [
+       304327,
+       45
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 76174781,
+      "decoded_bytes": 109557720
+     },
+     "N": {
+      "shape": [
+       304327
+      ],
+      "dtype": "int32",
+      "objects": 5,
+      "bytes": 17118,
+      "decoded_bytes": 1217308
+     },
+     "be_cov_ranges": {
+      "shape": [
+       304327,
+       2,
+       1,
+       2
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 5959860,
+      "decoded_bytes": 9738464
+     },
+     "be_map": {
+      "shape": [
+       304327,
+       2
+      ],
+      "dtype": "int16",
+      "objects": 5,
+      "bytes": 61923,
+      "decoded_bytes": 1217308
+     },
+     "cov_ranges": {
+      "shape": [
+       304327,
+       1,
+       2
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 3059298,
+      "decoded_bytes": 4869232
+     },
+     "gamma": {
+      "shape": [
+       304327,
+       2
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 3856294,
+      "decoded_bytes": 4869232
+     },
+     "has_model": {
+      "shape": [
+       304327
+      ],
+      "dtype": "bool",
+      "objects": 5,
+      "bytes": 15436,
+      "decoded_bytes": 304327
+     },
+     "hyp": {
+      "shape": [
+       304327,
+       5
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 9185332,
+      "decoded_bytes": 12173080
+     },
+     "inscaler": {
+      "shape": [
+       304327,
+       1,
+       4
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 6548286,
+      "decoded_bytes": 9738464
+     },
+     "m": {
+      "shape": [
+       304327,
+       9
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 16155169,
+      "decoded_bytes": 21911544
+     },
+     "mean_knots": {
+      "shape": [
+       304327,
+       10
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 9596320,
+      "decoded_bytes": 24346160
+     },
+     "mean_minmax": {
+      "shape": [
+       304327,
+       2
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 3488164,
+      "decoded_bytes": 4869232
+     },
+     "nlZ": {
+      "shape": [
+       304327
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 1994263,
+      "decoded_bytes": 2434616
+     },
+     "outscaler": {
+      "shape": [
+       304327,
+       4
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 7019307,
+      "decoded_bytes": 9738464
+     },
+     "var_minmax": {
+      "shape": [
+       304327,
+       2
+      ],
+      "dtype": "float64",
+      "objects": 5,
+      "bytes": 3488164,
+      "decoded_bytes": 4869232
+     }
+    },
+    "predict_bytes": 127815852,
+    "predict_objects": 45,
+    "predict_decoded_bytes": 193856299
+   }
+  }
+ }
+}
