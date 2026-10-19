@@ -1,9 +1,10 @@
-# The app is developed here and upstreamed to neurodesk/webapps (vendored as a
-# submodule). The shared components package is a member of this workspace so
-# the app depends on it with `workspace:*`, exactly as it will upstream.
+# The app and its package are developed here and upstreamed to neurodesk/webapps
+# (vendored as a submodule). The shared components package is a member of this
+# workspace so both depend on it with `workspace:*`, exactly as they will upstream.
 # Run `pnpm link-upstream` first.
 packages:
   - "apps/*"
+  - "packages/*"
   - "vendor/webapps/packages/components"
 allowBuilds:
   cbor-extract: false

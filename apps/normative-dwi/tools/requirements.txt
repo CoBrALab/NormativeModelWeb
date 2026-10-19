@@ -1,9 +1,0 @@
-# Python oracle for the browser predictor's parity fixtures (tools/make_fixtures.py).
-# Matches the reference environment /scratch/parent41/voxel_nm/.venv_pcnGabe (Python 3.12.4).
-# Full lock of that environment: requirements-lock.txt (next to this file).
-pcntoolkit @ git+https://github.com/gdevenyi/PCNToolkit.git@4219457a92a9313f48482158d329d7ff59edd082
-numpy==2.5.3
-scipy==1.18.1
-pandas==3.0.6
-zarr==3.4.0
-nibabel==5.4.2

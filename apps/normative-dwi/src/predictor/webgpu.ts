@@ -1,12 +1,12 @@
 // WebGPU float32 z-score adapter (docs/adr/0001). One invocation per voxel,
-// the same steps in the same order as the float64 kernel in kernel.ts, except
-// that the Cholesky factor of A is computed on the CPU in float64 and uploaded:
-// the design is collinear (spline basis, intercept and sex columns each sum to
-// one), cond(A) reaches ~1e8, and a float32 factorisation breaks down.
+// the same steps in the same order as the float64 kernel in
+// @neurodesk/normative-dwi (src/predictor/kernel.js), except that the Cholesky
+// factor of A is computed on the CPU in float64 and uploaded: the design is
+// collinear (spline basis, intercept and sex columns each sum to one), cond(A)
+// reaches ~1e8, and a float32 factorisation breaks down.
 // Validity (modelled, nonzero, finite) and age clamping counts are decided on
 // the CPU, so both adapters agree exactly on which voxels are scored.
-import { designSize, type Covariates, type MarkerParams, type ZmapResult } from "../model.ts";
-import { choleskyLower, sexColumn } from "./kernel.ts";
+import { choleskyLower, designSize, sexColumn, type Covariates, type MarkerParams, type ZmapResult } from "@neurodesk/normative-dwi";
 
 const WORKGROUP = 64;
 // The shader is written for the ukb_blr_agesex design: 10 knots (6 cubic
