@@ -4,6 +4,7 @@ test-results/
 playwright-report/
 __pycache__/
 benchmark/work/
+private_example/
 
 # Parity fixtures carry UK Biobank-derived model parameters: generate locally, never commit.
-apps/normative-dwi/test/fixtures/
+packages/normative-dwi/test/fixtures/

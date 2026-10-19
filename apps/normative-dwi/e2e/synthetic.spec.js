@@ -10,9 +10,8 @@ import { join } from "node:path";
 import { gunzipSync } from "fflate";
 import { serveStore } from "./serve-store.mjs";
 import { assertHardwareAdapter, hardwareGpu, readAdapterInfo } from "../../../test-utils/hardware-gpu.mjs";
-import { storeVoxelAt, syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../test/synthetic-store.js";
-import { zmapCpu } from "../src/predictor/kernel.ts";
-import { makeNifti } from "../test/nifti.js";
+import { zmapCpu } from "@neurodesk/normative-dwi";
+import { makeNifti, storeVoxelAt, syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "@neurodesk/normative-dwi/synthetic-store";
 import { decodePng } from "./png.js";
 import cetD1 from "../src/colormaps/cet-d1.json" with { type: "json" };
 

@@ -1,0 +1,41 @@
+{
+  "name": "@neurodesk/normative-dwi",
+  "version": "0.0.20261018",
+  "private": true,
+  "description": "Normative DWI's voxelwise normative z-scores (PCNtoolkit BLR models in an nmzarr store) for browsers and the command line",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "normative-dwi": "./bin/normative-dwi.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./node": "./src/node.js",
+    "./synthetic-store": "./src/synthetic-store.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "node --check src/index.js && node --check src/node.js && node --check src/synthetic-store.js && node --check bin/normative-dwi.js"
+  },
+  "dependencies": {
+    "@neurodesk/webapp-components": "workspace:*",
+    "fflate": "^0.8.2",
+    "numcodecs": "0.3.2",
+    "zarrita": "^0.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/neurodesk/webapps.git",
+    "directory": "packages/normative-dwi"
+  }
+}

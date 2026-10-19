@@ -9,6 +9,7 @@ Normative DWI scores one person's diffusion microstructure maps against voxelwis
 - **Background (optional):** a T1-weighted or FLAIR image registered to UK Biobank space, at any resolution, shown under the z-map. Over it, each voxel's opacity is min(1, |z|/L), with L the colour limit, so near-normal voxels let the anatomy through; with **From |z|** off (viewer toolbar, top right), the **Overlay** slider sets one opacity for every scored voxel instead. Unscored voxels stay transparent either way. The display is interpolated between the 2 mm voxels; the readout gives each voxel's true z. It is for display only. The app checks that it covers the maps' field of view, not that it is registered.
 - **Ages:** ages outside a voxel's training range (about 45–81) are scored at its nearest end, as the models' reference pipeline (CoBrALab proc_nm, not public yet) does, and the status line says so.
 - **Compute:** the CPU path (float64) is the default and the reference, and reproduces PCNtoolkit to better than 1e-6. The GPU path (WebGPU, float32; Advanced settings) is tested to agree with it within 1e-3 ([ADR-0001](docs/adr/0001-cpu-f64-reference-gpu-f32.md)).
+- **Command line:** [`@neurodesk/normative-dwi`](../../packages/normative-dwi/README.md) holds the store reader, the CPU kernel and the image I/O this app uses. Its `normative-dwi` command line writes the same z-maps from a local store folder.
 
 Terms are defined in [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
@@ -24,29 +25,26 @@ Only stores at commit-pinned Hugging Face URLs (`https://huggingface.co/…/reso
 
 ## Code
 
+The store reader, the CPU kernel, the image I/O and the per-map scoring step are in [`packages/normative-dwi`](../../packages/normative-dwi/README.md), with their tests and the Python oracle. This app adds:
+
 | Path | Role |
 |---|---|
-| `src/model-store/` | Opens a store (URL or local folder), checks its model design and layout, and reads one marker's parameters |
-| `src/predictor/` | Z-score kernel: CPU float64 (reference) and WebGPU float32, with CPU fallback |
-| `src/subject-image/` | Reads a map, matches it to the store grid through the affines, and writes the z-map NIfTI |
+| `src/main.ts` | The workflow: maps, covariates, store choice, runs, downloads and automation |
+| `src/model-store/persistent-cache.ts` | Cache Storage for stores at commit-pinned Hugging Face URLs, passed to the store reader as its fetch |
+| `src/predictor/` | The WebGPU float32 adapter, and the CPU fallback around it |
 | `src/viewer.ts` | NiiVue view of one z-map: CET-D1 at ±L (L = 3 by default, the toolbar's ±\|z\| box), unscored voxels transparent, true-z readout; over a background, alpha modulation by a hidden layer: \|z\| for opacity from \|z\|, the scored mask for uniform opacity |
-| `tools/` | Python oracle and helpers: parity fixtures, reference z-maps, store release |
 
 ## Tests
 
 ```bash
-pnpm test              # Node: kernel, store, image I/O, predictors, config (no data needed)
+pnpm test              # Node: GPU fallback, response cache, config (no data needed)
 pnpm test:e2e          # Chromium on the built app: smoke + the whole UI on a generated store
 ```
 
-Two kinds of test data are committed or generated, and neither holds UK Biobank or subject data:
-- `test/reference/synthetic-pcn.json` is from `tools/make_synthetic_reference.py`. PCNtoolkit fitted 8 voxel models to simulated data and scored 144 cases itself, so CI checks the kernel against an independent implementation.
-- `test/synthetic-store.js` generates a small store with **random** parameters, written like the real one (sharded, blosc). It also generates maps on its grid, in RAS, MINC and LAS layouts.
+The kernel, store and image I/O tests are in the [package](../../packages/normative-dwi/README.md#tests). The browser tests use its generated store, which has **random** parameters but is written like the real one (sharded, blosc), with maps on its grid in RAS, MINC and LAS layouts.
 
 Tests that need real data skip without it:
-- `test/fixtures/` comes from `tools/make_fixtures.py`. It holds UK Biobank-derived parameters, so it is never committed.
-- `NMZARR_STORE` points at the real store.
-- `NORMATIVE_E2E_DIR` points at the output of `tools/make_reference_zmap.py`.
-- `NORMATIVE_TEMPLATE_NIFTI` points at a UK Biobank 2 mm template.
+- `NMZARR_STORE` points at the real store, and `NORMATIVE_E2E_DIR` at the output of `packages/normative-dwi/validation/make_reference_zmap.py`. With both, `e2e/app.spec.js` runs a whole subject through the UI, on the CPU and the GPU.
+- The package's `test/fixtures/` (from `validation/make_fixtures.py`, never committed) adds the per-marker cases to the GPU parity check.
 
 `playwright.gpu.config.js` runs the WebGPU path against PCNtoolkit: on the committed reference always, and on the fixtures when present.

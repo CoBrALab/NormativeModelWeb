@@ -1,28 +1,14 @@
-// Predictor adapters without a GPU: CPU blocks, cancellation and the GPU→CPU fallback.
+// The GPU adapter without a GPU: the GPU→CPU fallback.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cpuPredictor, gpuPredictor } from "../src/predictor/index.ts";
-import { zmapCpu } from "../src/predictor/kernel.ts";
-import { syntheticMap, syntheticModel, syntheticParams } from "./synthetic-store.js";
+import { zmapCpu } from "@neurodesk/normative-dwi";
+import { syntheticMap, syntheticModel, syntheticParams } from "@neurodesk/normative-dwi/synthetic-store";
+import { gpuPredictor } from "../src/predictor/index.ts";
 
 const model = syntheticModel();
 const params = syntheticParams(model, "FA");
 const { y } = syntheticMap(model, "FA");
 const subject = { age: 63, sex: "female" };
-
-test("the CPU predictor scores in blocks and matches the synchronous kernel", async () => {
-  const expected = zmapCpu(params, subject, y);
-  const got = await cpuPredictor().zmap(params, subject, y);
-  assert.equal(got.kind, "cpu");
-  assert.deepEqual(got.z, expected.z);
-  assert.deepEqual(got.valid, expected.valid);
-});
-
-test("an aborted signal cancels CPU scoring", async () => {
-  const controller = new AbortController();
-  controller.abort();
-  await assert.rejects(cpuPredictor().zmap(params, subject, y, controller.signal), { name: "AbortError" });
-});
 
 function fakeGpu({ fail = null, lost = null } = {}) {
   let disposed = 0;
@@ -65,18 +51,6 @@ test("a lost device is not used at all", async () => {
   assert.equal(result.kind, "cpu");
   assert.equal(fake.gpu.calls, 0);
   assert.deepEqual(reasons, ["lost: destroyed"]);
-});
-
-test("blocked CPU scoring matches in many blocks and can be cancelled between them", async () => {
-  const { zmapCpuAsync } = await import("../src/predictor/kernel.ts");
-  const expected = zmapCpu(params, subject, y);
-  const many = await zmapCpuAsync(params, subject, y, undefined, 97);
-  assert.deepEqual(many.z, expected.z);
-  // Abort after the first yield: the run must stop before finishing.
-  const controller = new AbortController();
-  const run = zmapCpuAsync(params, subject, y, controller.signal, 64);
-  setTimeout(() => controller.abort(), 0);
-  await assert.rejects(run, { name: "AbortError" });
 });
 
 test("input errors do not switch the GPU off", async () => {

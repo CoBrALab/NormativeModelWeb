@@ -1,0 +1,12 @@
+Normative DWI command line
+Copyright (c) 2026 CoBrALab
+MIT
+
+The z-scores reproduce PCNtoolkit's warped Bayesian linear regression
+prediction (fork gdevenyi/PCNToolkit@4219457, GPL-3.0; no code is copied from
+it). The UK Biobank-derived model store is not part of this package and is not
+covered by its licence.
+
+Please cite: Fraza CJ, Dinga R, Beckmann CF, Marquand AF. Warped Bayesian
+linear regression for normative modelling of big data. NeuroImage.
+2021;245:118715. https://doi.org/10.1016/j.neuroimage.2021.118715

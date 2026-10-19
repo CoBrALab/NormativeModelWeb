@@ -1,6 +1,7 @@
 // Normative DWI: maps in, z-maps out. The interface comes from the shared
-// workspace vocabulary; the science is in model-store/, predictor/ and
-// subject-image/ (see docs/GLOSSARY.md and docs/adr/).
+// workspace vocabulary; the science is in @neurodesk/normative-dwi
+// (packages/normative-dwi, shared with the command line) and the WebGPU adapter
+// in predictor/ (see docs/GLOSSARY.md and docs/adr/).
 import "@neurodesk/webapp-components/styles/imaging-workspace.css";
 import { mountImagingWorkspace } from "@neurodesk/webapp-components/core/mount-imaging-workspace";
 import {
@@ -15,13 +16,31 @@ import {
 } from "@neurodesk/webapp-components/ui";
 import { downloadFile } from "@neurodesk/webapp-components/file-io/download";
 import { registerAppAutomation } from "@neurodesk/webapp-components/automation";
-import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, Z_LIMIT_RANGE, clampingNotice, guessMarker, isMarker, parseCovariates, parseZLimit, trainingRange, zmapFileName } from "./config.ts";
-import { MARKERS, type Covariates, type Marker } from "./model.ts";
-import { openModelStore, type ModelStore, type StoreSource } from "./model-store/index.ts";
-import { filesDirectory } from "./model-store/directory-store.ts";
-import { clearModelCache, pruneOldCaches } from "./model-store/persistent-cache.ts";
+import {
+  MARKERS,
+  displayNifti,
+  fieldOfViewOverlap,
+  filesDirectory,
+  gridMapping,
+  guessMarker,
+  isMarker,
+  loadSubjectMap,
+  openModelStore,
+  parseCovariates,
+  readBackground,
+  scoreMap,
+  voxelAtMm,
+  zmapFileName,
+  type BackgroundImage,
+  type Covariates,
+  type Marker,
+  type ModelStore,
+  type StoreSource,
+  type SubjectMap,
+} from "@neurodesk/normative-dwi";
+import { APP, DEFAULT_STORE_URL, Z_DISPLAY_LIMIT, Z_LIMIT_RANGE, parseZLimit } from "./config.ts";
+import { cachingFetch, clearModelCache, pruneOldCaches } from "./model-store/persistent-cache.ts";
 import { createPredictor, type Predictor, type PredictorKind } from "./predictor/index.ts";
-import { displayNifti, fieldOfViewOverlap, gatherToStore, gridMapping, loadSubjectMap, readBackground, scatterToNifti, voxelAtMm, type BackgroundImage, type SubjectMap } from "./subject-image/index.ts";
 import { createZViewer } from "./viewer.ts";
 import examples from "../examples.json";
 
@@ -98,7 +117,9 @@ interface ZmapOutput {
 let inputs: InputMap[] = [];
 let outputs: Record<string, ZmapOutput> = {};
 let store: ModelStore | null = null;
-let storeSource: StoreSource | null = DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null;
+/** A store served over HTTP, read through the persistent cache. */
+const urlSource = (url: string): StoreSource => ({ kind: "url", url, fetch: cachingFetch() });
+let storeSource: StoreSource | null = DEFAULT_STORE_URL ? urlSource(DEFAULT_STORE_URL) : null;
 let running: AbortController | null = null;
 let background: (BackgroundImage & { file: File }) | null = null;
 let shownMarker: string | null = null;
@@ -419,23 +440,25 @@ async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal):
   const started = performance.now();
   for (const [k, input] of usable.entries()) {
     const share = (f: number) => (k + f) / usable.length;
-    const mapping = gridMapping(input.map, modelStore.grid);
-    status(`Loading ${input.marker} models…`);
-    const params = await modelStore.loadMarker(input.marker, { signal, onProgress: (f) => progress.setProgress(share(0.9 * f)) });
-    status(`Scoring ${input.marker}…`);
-    const { z, valid, clamped, kind } = await compute.zmap(params, cov, gatherToStore(input.map, mapping), signal);
+    const { z, valid, mapping, scored, notice, kind, nifti } = await scoreMap({
+      store: modelStore,
+      map: input.map,
+      marker: input.marker,
+      covariates: cov,
+      predictor: compute,
+      signal,
+      onStatus: (message) => status(message),
+      onLoadProgress: (f) => progress.setProgress(share(0.9 * f)),
+    });
     kinds.add(kind);
-    const notice = clampingNotice(cov.age, clamped, trainingRange(params.covRanges, valid));
     if (notice) notices.push(notice);
-    const scored = valid.reduce((n, x) => n + x, 0);
     const name = zmapFileName(input.marker);
     const { nx, ny, nz } = input.map.header;
     const values = new Float32Array(nx * ny * nz).fill(Number.NaN);
     for (let v = 0; v < mapping.length; v++) if (valid[v]) values[mapping[v]] = z[v];
-    const description = `normative z (${modelStore.family} ${input.marker}, age ${cov.age}, ${cov.sex})`;
     produced[input.marker] = {
       description: `${input.marker} z-map · ${scored.toLocaleString()} voxels`,
-      file: new File([scatterToNifti(z, valid, mapping, input.map, description) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
+      file: new File([nifti as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
       views: displayCopies(z, valid, mapping, input.map, name),
       header: input.map.header,
       values,
@@ -505,12 +528,12 @@ for (const id of ["age", "sex"]) $(id).addEventListener("input", refreshActions)
 function useStoreUrl(url: string) {
   ($("storeUrl") as HTMLInputElement).value = url;
   $("storeInfo").hidden = true;
-  setStoreSource({ kind: "url", url });
+  setStoreSource(urlSource(url));
 }
 
 $("storeUrl").addEventListener("change", () => {
   const url = ($("storeUrl") as HTMLInputElement).value.trim();
-  setStoreSource(url ? { kind: "url", url } : DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null);
+  setStoreSource(url ? urlSource(url) : DEFAULT_STORE_URL ? urlSource(DEFAULT_STORE_URL) : null);
 });
 $("storeFolder").addEventListener("change", (event) => {
   const files = Array.from((event.target as HTMLInputElement).files ?? []);

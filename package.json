@@ -10,6 +10,6 @@
     "link-upstream": "bash tools/link-upstream.sh",
     "build": "pnpm --filter normative-dwi build",
     "dev": "pnpm --filter normative-dwi dev",
-    "test": "pnpm --filter normative-dwi test"
+    "test": "pnpm --filter @neurodesk/normative-dwi --filter normative-dwi test"
   }
 }

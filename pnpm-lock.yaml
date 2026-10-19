@@ -13,6 +13,9 @@ importers:
 
   apps/normative-dwi:
     dependencies:
+      '@neurodesk/normative-dwi':
+        specifier: workspace:*
+        version: link:../../packages/normative-dwi
       '@neurodesk/webapp-components':
         specifier: workspace:*
         version: link:../../vendor/webapps/packages/components
@@ -22,9 +25,6 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
-      zarrita:
-        specifier: ^0.7.3
-        version: 0.7.5
     devDependencies:
       '@playwright/test':
         specifier: link:../../vendor/webapps/node_modules/@playwright/test
@@ -32,15 +32,27 @@ importers:
       '@webgpu/types':
         specifier: ^0.1.60
         version: 0.1.74
-      numcodecs:
-        specifier: 0.3.2
-        version: 0.3.2
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
       vite:
         specifier: ^6.3.2
         version: 6.4.4
+
+  packages/normative-dwi:
+    dependencies:
+      '@neurodesk/webapp-components':
+        specifier: workspace:*
+        version: link:../../vendor/webapps/packages/components
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      numcodecs:
+        specifier: 0.3.2
+        version: 0.3.2
+      zarrita:
+        specifier: ^0.7.3
+        version: 0.7.5
 
   vendor/webapps/packages/components:
     dependencies:

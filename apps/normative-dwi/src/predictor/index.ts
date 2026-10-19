@@ -1,27 +1,11 @@
 // Predictor: z-scores for one subject's map against one marker's voxel models.
-// Two adapters (docs/adr/0001): "cpu" (float64, the reference) and "gpu"
-// (WebGPU float32). createPredictor picks one; a GPU that fails or is lost
-// hands the marker, and every later one, to the CPU.
-import type { Covariates, MarkerParams, ZmapResult } from "../model.ts";
-import { sexColumn, zmapCpuAsync } from "./kernel.ts";
+// Two adapters (docs/adr/0001): "cpu" (float64, the reference, from
+// @neurodesk/normative-dwi) and "gpu" (WebGPU float32). createPredictor picks
+// one; a GPU that fails or is lost hands the marker, and every later one, to the CPU.
+import { cpuPredictor, sexColumn, zmapCpuAsync, type Predictor, type PredictorKind } from "@neurodesk/normative-dwi";
 import { createGpuZmap, supportsDesign, type GpuZmap } from "./webgpu.ts";
 
-export type PredictorKind = "cpu" | "gpu";
-
-export interface Predictor {
-  /** The adapter that will score the next call (a failed GPU becomes "cpu"). */
-  readonly kind: PredictorKind;
-  zmap(params: MarkerParams, covariates: Covariates, y: ArrayLike<number>, signal?: AbortSignal): Promise<ZmapResult & { kind: PredictorKind }>;
-  dispose(): void;
-}
-
-export function cpuPredictor(): Predictor {
-  return {
-    kind: "cpu",
-    zmap: async (params, covariates, y, signal) => ({ ...(await zmapCpuAsync(params, covariates, y, signal)), kind: "cpu" }),
-    dispose() {},
-  };
-}
+export type { Predictor, PredictorKind };
 
 /** GPU first; on a GPU error or a lost device, warn once and continue on the CPU. */
 export function gpuPredictor(gpu: GpuZmap, onFallback: (reason: string) => void = () => {}): Predictor {

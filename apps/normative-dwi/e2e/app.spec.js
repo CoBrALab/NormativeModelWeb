@@ -1,7 +1,7 @@
 // The whole app on a real subject: upload maps, enter covariates, compute on
 // CPU and GPU, download the z-maps and compare them with
-// tools/make_reference_zmap.py. Local data only; skipped unless
-// NMZARR_STORE and NORMATIVE_E2E_DIR are set.
+// packages/normative-dwi/validation/make_reference_zmap.py. Local data only;
+// skipped unless NMZARR_STORE and NORMATIVE_E2E_DIR are set.
 import { test, expect } from "@playwright/test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
