@@ -5,7 +5,7 @@ compares speed and storage:
 
 - **Old:** training archives (`Models_n<MARKER>_c<CHUNK>.zip`, one JSON model
   per voxel), scored through PCNtoolkit the way proc_nm's step 4 (`n01`) does
-  it. The benchmark times PCNtoolkit **1.3.0**, the release proc_nm pins, and the
+  it. The benchmark times PCNtoolkit **1.3.0**, as proc_nm pins it (`pcntoolkit==1.3.0`; the reference environment has the git commit `amarquand/PCNtoolkit@3eac2b6`, 44 commits after the `v1.3.0` tag, which changed only files under `doc/`, so the package code is the 1.3.0 code), and the
   **1.4.0 fork** (`gdevenyi/PCNToolkit@4219457`) that fitted the app's models.
 - **New:** the same models converted to an **nmzarr** store (proc_nm
   `opt_inference`, Zarr v3), read by the app's store reader and scored by the
@@ -83,7 +83,7 @@ kernel is single-threaded.
 
   | Variable | Contents | Requirements |
   |---|---|---|
-  | `PCN13_PYTHON` | PCNtoolkit 1.3.0, Python 3.11 | `requirements-pcn13.lock`: every package with hashes, compiled from `requirements-pcn13.txt` with the versions in `reference-env-versions.txt` as constraints (`uv pip compile --python-version 3.11 --generate-hashes -c reference-env-versions.txt requirements-pcn13.txt -o requirements-pcn13.lock`) |
+  | `PCN13_PYTHON` | PCNtoolkit 1.3.0, Python 3.11 | `requirements-pcn13.lock`: every package with hashes, except `pcntoolkit`, which is a git commit and has none, compiled from `requirements-pcn13.txt` with the versions in `reference-env-versions.txt` as constraints (`uv pip compile --python-version 3.11 --generate-hashes -c reference-env-versions.txt requirements-pcn13.txt -o requirements-pcn13.lock`) |
   | `PCN14_PYTHON` | PCNtoolkit 1.4.0 fork, zarr, nibabel; Python 3.12 | `requirements-pcn14.txt`, which includes the app's `tools/requirements-lock.txt` |
 
   `bash benchmark/setup-envs.sh` creates both as `benchmark/.venv-pcn13` and

@@ -1,5 +1,7 @@
-# The old implementation: PCNtoolkit 1.3.0, the release proc_nm pins (nm/requirements_nm.txt).
+# The old implementation: PCNtoolkit 1.3.0, as proc_nm pins it (nm/requirements_nm.txt).
 # Versions of the authors' reference environment (Python 3.11.4).
+# The reference environment has the git commit amarquand/PCNtoolkit@3eac2b6 (44 commits after v1.3.0, docs only),
+# which reference-env-versions.txt pins and the lock therefore uses; a git requirement has no hash.
 pcntoolkit==1.3.0
 numpy==2.4.6
 scipy==1.17.1

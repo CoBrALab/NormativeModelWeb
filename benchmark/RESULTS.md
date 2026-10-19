@@ -9,7 +9,9 @@ core. The raw numbers are in [`results/`](results/), and
 - **Old:** proc_nm's step 4 (`n01`). It unpacks each training archive and,
   for every voxel, calls `NormativeModel.load`, then
   `NormData.from_dataframe`, then `predict`. Measured with PCNtoolkit
-  **1.3.0** (the release proc_nm pins) and with the **1.4.0 fork** that
+  **1.3.0** as proc_nm pins it (the reference environment has the git commit
+  `amarquand/PCNtoolkit@3eac2b6`, 44 commits after the `v1.3.0` tag, which
+  changed only files under `doc/`) and with the **1.4.0 fork** that
   fitted the app's models.
 - **New:** the same models converted to an nmzarr store. The app's store
   reader loads them, and the app's float64 CPU predictor (`cpuPredictor().zmap`,
@@ -316,7 +318,7 @@ kernel's cost per voxel depends on those sizes, not on the parameter values.
 - **Provenance of `results/`.** The results were made on 2026-10-19 from the
   tree at `9abf7d1` plus uncommitted edits, so `environment.json` says
   `9abf7d1-dirty`. After the run, only comment lines of
-  `requirements-pcn13.txt`, `requirements-pcn13.lock` and
+  `requirements-pcn13.txt` (a note on the PCNtoolkit pin was added in the third review), `requirements-pcn13.lock` and
   `requirements-pcn14.txt` changed (they no longer name local paths), and
   `benchmark_files_sha256_16` was recomputed by hand over the final files. No
   script changed, and `reference-env-versions.txt` was added. A fresh run
