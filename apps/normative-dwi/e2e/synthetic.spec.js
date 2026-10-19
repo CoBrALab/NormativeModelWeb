@@ -13,6 +13,8 @@ import { assertHardwareAdapter, hardwareGpu, readAdapterInfo } from "../../../te
 import { storeVoxelAt, syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../test/synthetic-store.js";
 import { zmapCpu } from "../src/predictor/kernel.ts";
 import { makeNifti } from "../test/nifti.js";
+import { decodePng } from "./png.js";
+import cetD1 from "../src/colormaps/cet-d1.json" with { type: "json" };
 
 const model = syntheticModel();
 const subject = { age: 66.5, sex: "female" };
@@ -267,6 +269,69 @@ test("a structural background sits under the z-map, and the readout still gives 
   await expect(fromZ).toBeDisabled();
   await expect(slider).toBeDisabled();
   await expect(page.locator("#statusText")).toContainText("z-map · colour saturates");
+});
+
+/** Pixels of the canvas above the colorbar (its bottom eighth), as { width, height, rgba }. */
+async function canvasPixels(canvas) {
+  const image = decodePng(await canvas.screenshot());
+  return { ...image, height: Math.floor(image.height * 7 / 8) };
+}
+const near = (rgba, i, [r, g, b], tolerance = 3) => Math.abs(rgba[i] - r) <= tolerance && Math.abs(rgba[i + 1] - g) <= tolerance && Math.abs(rgba[i + 2] - b) <= tolerance;
+
+test("over a background, unscored voxels show it and saturated voxels take CET-D1's end colours, in either opacity mode", async ({ page }, testInfo) => {
+  const path = testInfo.outputPath("sub-01_T1w.nii");
+  await writeFile(path, syntheticStructural());
+  await prepare(page, "cpu");
+  await runToEnd(page);
+  await page.locator("#backgroundInput").setInputFiles(path);
+  await expect(page.locator("#statusText")).toContainText("over sub-01_T1w.nii");
+  await page.locator("nd-viewer-toolbar").getByRole("button", { name: "Axial", exact: true }).click();
+  const canvas = page.locator("#gl1");
+  const settle = () => page.waitForTimeout(300);
+
+  // Unscored voxels show the bare background in both modes. The reference is
+  // the background through a fully transparent z-map (uniform at 0%), on the
+  // same layout (colorbar included).
+  const opacity = page.locator("#overlayOpacity");
+  await page.locator("#opacityFromZ").uncheck();
+  await opacity.fill("0");
+  await expect(page.locator("#statusText")).toContainText("opacity 0%");
+  await settle();
+  const bare = await canvasPixels(canvas);
+  await opacity.fill("1");
+  await expect(page.locator("#statusText")).toContainText("opacity 100%");
+  await settle();
+  const uniform = await canvasPixels(canvas);
+  await page.locator("#opacityFromZ").check();
+  await expect(page.locator("#statusText")).toContainText("opacity grows with |z|");
+  await settle();
+  const byZ = await canvasPixels(canvas);
+  let shown = 0, untouched = 0, untouchedByZ = 0;
+  for (let i = 0; i < bare.width * bare.height * 4; i += 4) {
+    if (near(bare.rgba, i, [0, 0, 0], 0)) continue; // outside the image
+    shown++;
+    // At 100% every scored voxel is opaque, so the pixels it leaves as they were are the unscored ones.
+    if (!near(uniform.rgba, i, bare.rgba.slice(i, i + 3), 2)) continue;
+    untouched++;
+    if (near(byZ.rgba, i, bare.rgba.slice(i, i + 3), 2)) untouchedByZ++;
+  }
+  // About 35% of the slice is unscored here; drawing it (near-white, the old bug) leaves about 1%.
+  expect(untouched / shown, "unscored voxels leave the background as it is at 100% uniform opacity").toBeGreaterThan(0.2);
+  expect(untouchedByZ / untouched, "and with opacity from |z|").toBeGreaterThan(0.99);
+
+  // Saturated voxels: CET-D1's end colours, in either mode.
+  await page.locator("#zLimit").fill("0.5");
+  await page.locator("#zLimit").dispatchEvent("change");
+  await expect(page.locator("#statusText")).toContainText("|z| = 0.5");
+  const ends = [[cetD1.R[0], cetD1.G[0], cetD1.B[0]], [cetD1.R.at(-1), cetD1.G.at(-1), cetD1.B.at(-1)]];
+  for (const fromZ of [false, true]) {
+    await page.locator("#opacityFromZ").setChecked(fromZ);
+    await settle();
+    const image = await canvasPixels(canvas);
+    let atEnds = 0;
+    for (let i = 0; i < image.width * image.height * 4; i += 4) if (ends.some((colour) => near(image.rgba, i, colour))) atEnds++;
+    expect(atEnds, `pixels at CET-D1's end colours (from |z| ${fromZ})`).toBeGreaterThan(1000);
+  }
 });
 
 test("the ±|z| box sets where the colour saturates, for display only", async ({ page }) => {

@@ -161,7 +161,7 @@ test("the overlay copy writes unscored voxels as 0, for the opacity ramp to hide
 test("a background's field of view is compared with the z-map's in world space", async () => {
   const { fieldOfViewOverlap, readBackground } = await import("../src/subject-image/index.ts");
   const zmap = (await mapFor(xFirst.dims, xFirst.affine)).header;
-  const header = async (dims, affine) => (await readBackground("t1.nii", makeNifti(dims, affine, new Float32Array(dims[0] * dims[1] * dims[2])))).header;
+  const header = async (dims, affine) => (await readBackground("t1.nii", new Blob([makeNifti(dims, affine, new Float32Array(dims[0] * dims[1] * dims[2]))]))).header;
   assert.equal(fieldOfViewOverlap(await header(xFirst.dims, xFirst.affine), zmap), 1);
   // The same box at 1 mm, and in store (MINC) axis order.
   assert.equal(fieldOfViewOverlap(await header([11, 9, 7], [[1, 0, 0, -10], [0, 1, 0, -20], [0, 0, 1, -30], [0, 0, 0, 1]]), zmap), 1);
@@ -173,9 +173,31 @@ test("a background's field of view is compared with the z-map's in world space",
 
 test("a background must be one 3-D NIfTI-1 image", async () => {
   const { readBackground } = await import("../src/subject-image/index.ts");
-  await assert.rejects(readBackground("notes.txt", new TextEncoder().encode("x".repeat(400))), /notes\.txt: not a NIfTI-1 image/);
+  await assert.rejects(readBackground("notes.txt", new Blob(["x".repeat(400)])), /notes\.txt: not a NIfTI-1 image/);
+  await assert.rejects(readBackground("short.nii", new Blob(["x"])), /short\.nii: not a NIfTI-1 image/);
   const bytes = makeNifti(xFirst.dims, xFirst.affine, new Float32Array(6 * 5 * 4 * 2));
   new DataView(bytes.buffer).setInt16(40, 4, true);
   new DataView(bytes.buffer).setInt16(48, 2, true);
-  await assert.rejects(readBackground("dwi.nii", bytes), /dwi\.nii: expected one 3-D image, found 2 volumes/);
+  await assert.rejects(readBackground("dwi.nii", new Blob([bytes])), /dwi\.nii: expected one 3-D image, found 2 volumes/);
+});
+
+test("a gzipped background is read only as far as its header", async () => {
+  const { readBackground } = await import("../src/subject-image/index.ts");
+  const { gzipSync } = await import("fflate");
+  const dims = [64, 64, 64];
+  const voxels = Float32Array.from({ length: dims[0] * dims[1] * dims[2] }, (_, i) => Math.sin(i) * 1000);
+  const gzipped = gzipSync(makeNifti(dims, xFirst.affine, voxels));
+  // A whole-file decode would fail on the cut stream; reading the header needs only its start.
+  const { header } = await readBackground("t1.nii.gz", new Blob([gzipped.subarray(0, 4096)]));
+  assert.deepEqual([header.nx, header.ny, header.nz], dims);
+});
+
+test("the field-of-view check places images by their raw affines, as the viewer does", async () => {
+  const { fieldOfViewOverlap, readBackground } = await import("../src/subject-image/index.ts");
+  const zmap = (await mapFor(xFirst.dims, xFirst.affine)).header;
+  // The same box, its affine in metres (xyzt_units): NiiVue ignores the units and draws it about the origin.
+  const bytes = makeNifti(xFirst.dims, xFirst.affine.map((row, r) => (r < 3 ? row.map((v) => v / 1000) : row)), new Float32Array(6 * 5 * 4));
+  new DataView(bytes.buffer).setUint8(123, 1); // NIFTI_UNITS_METER
+  const { header } = await readBackground("metres.nii", new Blob([bytes]));
+  assert.equal(fieldOfViewOverlap(header, zmap), 0);
 });

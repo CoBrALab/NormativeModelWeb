@@ -108,9 +108,10 @@ let zLimit = Z_DISPLAY_LIMIT;
 interface DisplayCopies {
   /** The z-map alone: unscored voxels below the range (displayNifti's default). */
   zmap: File;
-  /** The z-map over a background (unscored voxels 0), and its |z| (the opacity). */
+  /** The z-map over a background (unscored voxels 0), its |z| and its scored mask (the opacity, from |z| or uniform). */
   overlay: File;
   magnitude: File;
+  scored: File;
 }
 
 /** Display copies of one z-map, saturated at the limit asked for; the last one is kept. */
@@ -118,12 +119,15 @@ function displayCopies(z: Float64Array, valid: Uint8Array, mapping: Int32Array, 
   const magnitude = z.map(Math.abs);
   let last: { limit: number; copies: DisplayCopies } | null = null;
   const file = (bytes: Uint8Array, suffix: string) => new File([bytes as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, `${suffix}.nii`));
+  // 1 where scored (saturating 1 at a limit of 1 keeps it 1), 0 elsewhere; the same at every limit.
+  const scored = file(displayNifti(new Float64Array(z.length).fill(1), valid, mapping, map, 1, 0), "_scored");
   return (limit) => {
     if (last?.limit !== limit) {
       last = { limit, copies: {
         zmap: file(displayNifti(z, valid, mapping, map, limit), ""),
         overlay: file(displayNifti(z, valid, mapping, map, limit, 0), "_overlay"),
         magnitude: file(displayNifti(magnitude, valid, mapping, map, limit, 0), "_abs"),
+        scored,
       } };
     }
     return last.copies;
@@ -237,7 +241,7 @@ async function redisplay() {
 async function loadBackground(files: File[]) {
   if (running) throw new Error("Wait for the current run to finish, or cancel it.");
   const [file] = files;
-  const image = { ...(await readBackground(file.name, await file.arrayBuffer())), file };
+  const image = { ...(await readBackground(file.name, file)), file };
   const reference = (shownMarker && outputs[shownMarker]?.header) || inputs[0]?.map.header;
   const problem = reference && backgroundProblem(image, reference);
   if (problem) throw new Error(problem);

@@ -6,6 +6,7 @@ import {
   createNiftiFromData,
   decodeNiftiBuffer,
   extractNiftiHeader,
+  isGzipped,
   isValidNifti1,
   parseNiftiHeader,
   readNiftiImageData,
@@ -192,19 +193,51 @@ export interface BackgroundImage {
   header: NiftiHeader;
 }
 
-/** Read a structural image's header for display under the z-map; its voxels are left to the viewer. */
-export async function readBackground(name: string, bytes: ArrayBuffer | Uint8Array): Promise<BackgroundImage> {
-  const decoded = await decodeNiftiBuffer(bytes);
-  if (!isValidNifti1(decoded)) throw new GridMismatchError(`${name}: not a NIfTI-1 image`);
-  const header = parseNiftiHeader(decoded);
+/** NIfTI-1 header size (sizeof_hdr). */
+const NIFTI1_HEADER_BYTES = 348;
+
+/** The first `length` bytes of an image, gunzipping only as far as needed (fewer if the image is shorter). */
+async function leadingBytes(file: Blob, length: number): Promise<Uint8Array> {
+  if (!isGzipped(new Uint8Array(await file.slice(0, 2).arrayBuffer()))) return new Uint8Array(await file.slice(0, length).arrayBuffer());
+  const reader = file.stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+  const out = new Uint8Array(length);
+  let filled = 0;
+  try {
+    while (filled < length) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = Math.min(value.length, length - filled);
+      out.set(value.subarray(0, take), filled);
+      filled += take;
+    }
+  } catch {
+    // A stream that is not gzip after all, or ends early: judged by what was read.
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return out.subarray(0, filled);
+}
+
+/**
+ * Read a structural image's header for display under the z-map. Only the
+ * header is read (and gunzipped): the voxels are left to the viewer.
+ */
+export async function readBackground(name: string, file: Blob): Promise<BackgroundImage> {
+  const bytes = await leadingBytes(file, NIFTI1_HEADER_BYTES);
+  if (!isValidNifti1(bytes)) throw new GridMismatchError(`${name}: not a NIfTI-1 image`);
+  const header = parseNiftiHeader(bytes);
   const frames = header.dims[0] > 3 ? header.dims.slice(4, 1 + header.dims[0]).reduce((a, b) => a * Math.max(1, b), 1) : 1;
   if (frames > 1) throw new GridMismatchError(`${name}: expected one 3-D image, found ${frames} volumes`);
   return { name, header };
 }
 
-/** World bounding box (mm) of an image's voxel centres: [min, max] per axis. */
+/**
+ * World bounding box of an image's voxel centres: [min, max] per axis. It uses
+ * the raw affine, as NiiVue does when it places the layers (see voxelAtMm), so
+ * the check agrees with the display even for an image in metres.
+ */
 function worldBox(header: NiftiHeader): [number, number][] {
-  const mm = affineMm(header);
+  const mm = header.affine.slice(0, 3);
   const dims = [header.nx, header.ny, header.nz];
   const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((c) => [0, 1, 2].map((axis) => ((c >> axis) & 1) * (dims[axis] - 1)));
   return mm.map((row) => {
