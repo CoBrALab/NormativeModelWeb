@@ -31,10 +31,16 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import subjects  # noqa: E402
+import subjects
 
 warnings.filterwarnings("ignore")
-STEPS = ["compute_zscores", "compute_centiles", "compute_yhat", "compute_baseline_logp", "compute_logp"]
+STEPS = [
+    "compute_zscores",
+    "compute_centiles",
+    "compute_yhat",
+    "compute_baseline_logp",
+    "compute_logp",
+]
 
 
 def instrument(cls, timings):
@@ -66,14 +72,22 @@ def score_voxel(NormativeModel, NormData, model_dir, mode, n_subj, v, scratch):
     model.save_dir = tempfile.mkdtemp(dir=scratch)
     t1 = time.perf_counter()
     out = model.outscalers["micro"]
-    frame = pd.DataFrame({
-        "uid": [f"s{s}" for s in range(n_subj)],
-        "Age": [subjects.age(s) for s in range(n_subj)],
-        "Sex": [subjects.sex_level(s) for s in range(n_subj)],
-        "micro": [subjects.response(v, s, out.m, out.s) for s in range(n_subj)],
-    })
-    data = NormData.from_dataframe(name=f"v{v}", dataframe=frame, covariates=["Age"], batch_effects=["Sex"],
-                                   response_vars=["micro"], subject_ids="uid")
+    frame = pd.DataFrame(
+        {
+            "uid": [f"s{s}" for s in range(n_subj)],
+            "Age": [subjects.age(s) for s in range(n_subj)],
+            "Sex": [subjects.sex_level(s) for s in range(n_subj)],
+            "micro": [subjects.response(v, s, out.m, out.s) for s in range(n_subj)],
+        }
+    )
+    data = NormData.from_dataframe(
+        name=f"v{v}",
+        dataframe=frame,
+        covariates=["Age"],
+        batch_effects=["Sex"],
+        response_vars=["micro"],
+        subject_ids="uid",
+    )
     t2 = time.perf_counter()
     (model.predict if mode == "predict" else model.compute_zscores)(data)
     t3 = time.perf_counter()
@@ -86,17 +100,23 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--models", type=Path, required=True, help="make_models.py output")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--subjects", default="1,100", help="cohort sizes to time, comma-separated")
-    ap.add_argument("--scratch", default="/dev/shm" if os.path.isdir("/dev/shm") else None,
-                    help="where archives are unpacked (n01 uses /dev/shm)")
+    ap.add_argument(
+        "--subjects", default="1,100", help="cohort sizes to time, comma-separated"
+    )
+    ap.add_argument(
+        "--scratch",
+        default="/dev/shm" if os.path.isdir("/dev/shm") else None,
+        help="where archives are unpacked (n01 uses /dev/shm)",
+    )
     args = ap.parse_args()
     manifest = json.loads((args.models / "manifest.json").read_text())
     cohorts = [int(n) for n in args.subjects.split(",")]
     configs = [(mode, n) for n in cohorts for mode in ("predict", "zscores")]
 
     t = time.perf_counter()
-    from pcntoolkit import NormativeModel, NormData
     import pcntoolkit.util.output
+    from pcntoolkit import NormativeModel, NormData
+
     import_s = time.perf_counter() - t
     pcntoolkit.util.output.Output.set_show_messages(False)
     step_times = {c: {} for c in configs}
@@ -106,31 +126,47 @@ def main():
     scratch = tempfile.mkdtemp(prefix="nm-bench-old-", dir=args.scratch)
     sample = np.asarray(manifest["sample"])
     stage = {c: {"load": 0.0, "normdata": 0.0, "call": 0.0} for c in configs}
-    z0 = {c: {} for c in configs}
-    unzip_s, unzip_bytes, n_timed = 0.0, 0, 0
+    per_voxel_total = {c: [] for c in configs}  # seconds, one entry per timed voxel
+    zs = {c: {} for c in configs}  # voxel -> z of subjects 0 (Sex "0") and 1 (Sex "1")
+    unzip_each, unzip_s, unzip_bytes, n_timed = [], 0.0, 0, 0
     try:
         for c in range(manifest["n_chunks"]):
             zip_path = args.models / f"Models_n{manifest['marker']}_c{c}.zip"
             extract = os.path.join(scratch, f"c{c}")
             t = time.perf_counter()
             shutil.unpack_archive(zip_path, extract, "zip")
-            unzip_s += time.perf_counter() - t
+            unzip_each.append(time.perf_counter() - t)
+            unzip_s += unzip_each[-1]
             unzip_bytes += zip_path.stat().st_size
-            lo, hi = c * manifest["training_chunk"], (c + 1) * manifest["training_chunk"]
+            lo, hi = (
+                c * manifest["training_chunk"],
+                (c + 1) * manifest["training_chunk"],
+            )
             for v in sample[(sample >= lo) & (sample < hi)].tolist():
                 for cfg in configs:
                     current.clear()
                     with contextlib.redirect_stdout(io.StringIO()):
-                        times, z = score_voxel(NormativeModel, NormData, os.path.join(extract, f"model_{v}"),
-                                               cfg[0], cfg[1], v, scratch)
+                        times, z = score_voxel(
+                            NormativeModel,
+                            NormData,
+                            os.path.join(extract, f"model_{v}"),
+                            cfg[0],
+                            cfg[1],
+                            v,
+                            scratch,
+                        )
                     for k, val in times.items():
                         stage[cfg][k] += val
                     for k, val in current.items():
                         step_times[cfg][k] = step_times[cfg].get(k, 0.0) + val
-                    z0[cfg][str(v)] = float(z[0])
+                    per_voxel_total[cfg].append(sum(times.values()))
+                    zs[cfg][str(v)] = [float(x) for x in z[:2]]
                 n_timed += 1
             shutil.rmtree(extract, ignore_errors=True)
-            print(f"  c{c}: {n_timed} voxels timed, unpacking {unzip_s:.1f}s so far", flush=True)
+            print(
+                f"  c{c}: {n_timed} voxels timed, unpacking {unzip_s:.1f}s so far",
+                flush=True,
+            )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -139,24 +175,33 @@ def main():
     for mode, n in configs:
         per_voxel = {k: 1e3 * val / n_timed for k, val in stage[(mode, n)].items()}
         per_voxel["total"] = sum(per_voxel.values())
+        spread = np.asarray(per_voxel_total[(mode, n)]) * 1e3
+        q1, med, q3 = np.percentile(spread, [25, 50, 75])
         results[f"{mode}/{n}"] = {
             "mode": mode,
             "subjects": n,
             "ms_per_voxel": per_voxel,
-            "ms_per_voxel_by_step": {k: 1e3 * val / n_timed for k, val in step_times[(mode, n)].items()},
+            "ms_per_voxel_total_median_q1_q3": [med, q1, q3],
+            "ms_per_voxel_by_step": {
+                k: 1e3 * val / n_timed for k, val in step_times[(mode, n)].items()
+            },
             "marker_s": unzip_s + n_models * per_voxel["total"] / 1e3,
-            "z_subject0": z0[(mode, n)],
+            "z_subjects01": zs[(mode, n)],
         }
     doc = {
         "implementation": "archives + PCNtoolkit",
         "pcntoolkit": importlib.metadata.version("pcntoolkit"),
         "python": platform.python_version(),
         "numpy": np.__version__,
-        "models": str(args.models),
+        "models": args.models.name,
+        "scratch": "/dev/shm (tmpfs, as n01)"
+        if scratch.startswith("/dev/shm")
+        else "a regular directory",
         "n_models": n_models,
         "voxels_timed": n_timed,
         "import_s": import_s,
         "unzip_s_all_archives": unzip_s,
+        "unzip_s_each_archive": [round(x, 3) for x in unzip_each],
         "archive_bytes": unzip_bytes,
         "ms_per_voxel_read": 1e3 * unzip_s / n_models,
         "configs": results,
@@ -164,7 +209,9 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(doc, indent=1) + "\n")
     for key, r in results.items():
-        print(f"{key}: {r['ms_per_voxel']['total']:.2f} ms/voxel, marker {r['marker_s'] / 3600:.2f} h")
+        print(
+            f"{key}: {r['ms_per_voxel']['total']:.2f} ms/voxel, marker {r['marker_s'] / 3600:.2f} h"
+        )
 
 
 if __name__ == "__main__":

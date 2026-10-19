@@ -2,7 +2,9 @@
 
 Subject s has an age inside every voxel's training range (no clamping, so
 PCNtoolkit and the browser kernel compute the same thing), alternating sex,
-and at voxel v a response 1.5 sd-ish away from that voxel's training mean.
+and at voxel v a response that sits up to 1.5 response-scaler sds from the voxel's
+training mean. That is the marginal sd, not the predictive one, so the z-scores are
+far in the tails (median about -4, |z| > 5 at about half of the voxels).
 """
 
 import math

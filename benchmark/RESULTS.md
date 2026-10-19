@@ -1,9 +1,9 @@
 # Results: nmzarr + the app kernel against archives + PCNtoolkit
 
-Measured on 2026-10-18 with [`run.sh`](README.md) on one synthetic marker the
+Measured on 2026-10-19 with [`run.sh`](README.md) on one synthetic marker the
 size of the real FA store: 241,373 modelled voxels out of 304,327 mask voxels,
-in 31 archives. The machine was an AMD EPYC 9655 (tri-login02), using one core.
-The raw numbers are in [`results/`](results/), and
+in 31 archives. The machine was a shared AMD EPYC 9655 login node, using one
+core. The raw numbers are in [`results/`](results/), and
 [`results/summary.md`](results/summary.md) has every generated table.
 
 - **Old:** proc_nm's step 4 (`n01`). It unpacks each training archive and,
@@ -12,22 +12,50 @@ The raw numbers are in [`results/`](results/), and
   **1.3.0** (the release proc_nm pins) and with the **1.4.0 fork** that
   fitted the app's models.
 - **New:** the same models converted to an nmzarr store. The app's store
-  reader loads them, and the app's float64 CPU kernel scores them.
+  reader loads them, and the app's float64 CPU predictor (`cpuPredictor().zmap`,
+  which is what the browser calls) scores them.
 
-On the same models and the same subject, the two give the same z-scores. The
-largest difference is |Δz| = 2.4e-11, over the 620 voxels timed on the old path.
+**Headline.** On the same models, scoring one subject on one marker takes
+**0.6–0.7 s** on the new path against **34 min** for the cheapest PCNtoolkit
+call that gives z-scores (`compute_zscores` on the 1.4.0 fork): **2,800–3,300×
+faster**. The pipeline as deployed (`predict` on 1.3.0, which also computes
+centiles, log-likelihoods and `yhat`, on 1.3.0's own fits) takes 3.1 h, which
+is 15,000–17,600×. The range runs from the first run with the store open (cold)
+to the median of repeats (warm).
+
+On the same models and the same two subjects (one female, one male), the fork
+and the app kernel give the same z-scores. The largest difference is
+|Δz| = 2.4e-11, over the 620 voxels timed on the old path. PCNtoolkit 1.3.0
+fits its own models, which the kernel cannot score: its z differs from the
+kernel's on the same voxels by up to 14.6, so the 1.3.0 rows compare different
+fits.
 
 ## Speed
 
-| Typical use | PCNtoolkit 1.3.0 (archives) | nmzarr + app kernel | Gain |
+The new path's time is cold (the store open, the first read and the first
+scoring run) or warm (the medians of 5 repeats, no open). The old path is one
+pass, scaled from 620 voxels.
+
+| Typical use | Old path | nmzarr + app kernel | Gain |
 |---|---|---|---|
-| **Score one subject**, one marker, as `n01` does it (`predict`) | 3.0 h (scaled from 620 voxels) | **0.60 s** (measured: 0.52 s read + 0.08 s scoring) | **about 18,000×**; 12,000× vs the 1.4.0 fork (2.0 h) |
-| Score one subject, one marker, z-scores only (`compute_zscores`, PCNtoolkit's cheapest call that gives z) | 34 min | 0.60 s | **3,500×**; 3,400× vs the fork (33 min) |
-| **Score 100 subjects**, one marker (`predict`) | 3.3 h | **8.6 s** | **1,400×**; 830× vs the fork (2.0 h) |
-| Score 100 subjects, one marker, z-scores only | 36 min | 8.6 s | 250× |
-| **Read** one marker's models | 3.2 min (unpacking 22 s, measured on all 31 archives; `NormativeModel.load` 2.8 min, scaled) | **0.52 s** | **370×**; 180× vs the fork (93 s) |
-| Score one subject, **all five markers** (5 × the one-marker numbers) | about 15 h | about 3 s | about 18,000× |
-| **Per voxel**, one subject | read 0.77 ms; inputs (`NormData`) 4.0 ms; z 3.8 ms; or `predict` 40.4 ms | read 2.1 µs; scoring 0.33 µs | z, all steps: 8.4 ms → 2.5 µs, **3,400×**; scoring alone: 3.8 ms → 0.33 µs, **11,600×** |
+| **Score one subject**, one marker, **like for like**: 1.4.0 fork, same models, `compute_zscores` | 34 min | **0.74 s** cold, 0.63 s warm (0.59 s first read + 0.05 s open + 0.10 s scoring) | **2,800–3,300×** |
+| Score one subject, one marker, as `n01` does it (`predict`), 1.4.0 fork | 2.0 h | 0.74 / 0.63 s | 9,700–11,300× |
+| Score one subject, one marker, as `n01` does it (`predict`), 1.3.0 (its own D = 10 fits) | 3.1 h | 0.74 / 0.63 s | **15,000–17,600×** |
+| Score one subject, one marker, 1.3.0 z-scores only | 35 min | 0.74 / 0.63 s | 2,800–3,300× |
+| **Score 100 subjects**, one marker, like for like (fork `compute_zscores`) | 36 min | **10.7 s** cold, 10.6 s warm | **200×** |
+| Score 100 subjects, one marker, `predict`: fork; 1.3.0 | 2.0 h; 3.4 h | 10.7 s | 680×; 1,100× |
+| **Read** one marker's models | 1.3.0: 3.1 min (unpacking 23 s, measured on all 31 archives; `NormativeModel.load` 2.7 min, scaled). Fork: 97 s | **0.59 s** first read, 0.53 s warm | 310× vs 1.3.0; 160× vs the fork |
+| Score one subject, **all five markers** | 1.3.0 `predict`: about 15 h | about 4 s | about 15,000× |
+| **Per voxel**, one subject | read 0.77 ms; inputs (`NormData`) 4.0 ms; z 3.9 ms; or `predict` 41.3 ms (1.3.0) | read 2.2 µs; scoring 0.41 µs | z with read, inputs and scoring: 8.5 ms → 2.6 µs, **3,300×**; scoring alone: 4.0 ms (fork) → 0.41 µs, **9,800×** |
+
+The old path's per-voxel time is stable: the fork's `predict` has a median of
+29.5 ms and quartiles of 29.2–29.8 ms over the 620 timed voxels.
+
+The app yields to the event loop after each block of 16,384 voxels, so that
+scoring can be cancelled (`zmapCpuAsync`). That costs about 20 ms per subject
+in Node and is included in these numbers: the 100-subject figure is 10.7 s with
+the yields and 8.1 s without. A browser clamps nested timers to 4 ms, which
+could add up to 76 ms per subject.
 
 ## Storage
 
@@ -42,27 +70,28 @@ largest difference is |Δz| = 2.4e-11, over the 620 voxels timed on the old path
 
 ## Where the speed comes from
 
-For one subject, 1.3.0 spends 45.0 ms on each voxel:
+For one subject, 1.3.0 spends 46.1 ms on each voxel, unpacking included:
 
 | Part of the old path | ms per voxel | Share | In the new path |
 |---|---|---|---|
-| Unpack the archive (n01 does this into `/dev/shm`) | 0.09 | 0.2% | One store read for the whole marker: 2.1 µs per voxel, everything included |
+| Unpack the archive (n01 does this into `/dev/shm`) | 0.09 | 0.2% | One store read for the whole marker: 2.2 µs per voxel, everything included |
 | `NormativeModel.load`: parse 2 JSON files and build the model objects | 0.68 | 1.5% | (in the store read) |
-| `NormData.from_dataframe`: build an xarray dataset for the voxel | 4.0 | 8.8% | None: the subject's map is already a `Float64Array` |
-| `compute_zscores` | 3.8 | 8.4% | The kernel: 0.33 µs |
-| `compute_centiles` | 5.1 | 11% | Not computed |
-| `compute_yhat` | 22.2 | 49% | Not computed |
-| `compute_baseline_logp` | 4.5 | 10% | Not computed |
-| `compute_logp` | 4.7 | 10% | Not computed |
+| `NormData.from_dataframe`: build an xarray dataset for the voxel | 4.0 | 8.7% | None: the subject's map is already a `Float64Array` |
+| `compute_zscores` | 3.9 | 8.5% | The kernel: 0.41 µs |
+| `compute_centiles` | 5.2 | 11% | Not computed |
+| `compute_yhat` | 22.7 | 49% | Not computed |
+| `compute_baseline_logp` | 4.7 | 10% | Not computed |
+| `compute_logp` | 4.8 | 10% | Not computed |
 
-Change by change, the whole marker gets faster like this:
+Change by change, the whole marker gets faster like this (1.3.0 on its own
+fits; the warm time is used for the new path):
 
 | Change | Per voxel | One marker | Gain of this step | Cumulative |
 |---|---|---|---|---|
-| Starting point: `n01`'s path, 1.3.0 `predict` | 45.0 ms | 3.0 h | | |
-| 1. Compute only z | 8.4 ms | 34 min | 5.3× | 5.3× |
-| 2. Read the Zarr store instead of zips of JSON | 7.7 ms | 31 min | 1.1× | 5.9× |
-| 3. Score in the kernel instead of through `NormData` and PCNtoolkit | 2.5 µs (2.1 read + 0.33 scoring) | 0.60 s | 3,100× | **18,000×** |
+| Starting point: `n01`'s path, 1.3.0 `predict` | 46.1 ms | 3.1 h | | |
+| 1. Compute only z | 8.6 ms | 35 min | 5.3× | 5.3× |
+| 2. Read the Zarr store instead of zips of JSON | 7.9 ms | 32 min | 1.1× | 5.9× |
+| 3. Score in the kernel instead of through `NormData` and PCNtoolkit | 2.6 µs (2.2 read + 0.41 scoring) | 0.63 s | 3,000× | **17,600×** |
 
 ### 1. PCNtoolkit computes much more than z (5×)
 
@@ -71,9 +100,9 @@ two log-likelihoods, and the predicted mean `yhat`. The app needs only z.
 The other four outputs take 81% of the time. `compute_yhat` alone takes half,
 because it integrates numerically over the warp: in 1.3.0 that means about
 200 inversions of the sinh-arcsinh warp per voxel. The fork made `yhat` 4×
-faster (5.7 ms), and that accounts for most of the gap between 1.3.0 and the
-fork (45.0 against 29.1 ms per voxel). Even `compute_zscores` alone costs
-8.4 ms per voxel, once reading and `NormData` are counted.
+faster (5.8 ms), and that accounts for most of the gap between 1.3.0 and the
+fork (46.0 against 29.7 ms per voxel). Even `compute_zscores` alone costs
+8.5 ms per voxel, once reading and `NormData` are counted.
 
 ### 2. Per-voxel framework overhead (the big step)
 
@@ -85,11 +114,12 @@ operations plus 5 transcendental functions:
 - `exp`, `sinh`, `asinh` and `sqrt`.
 
 PCNtoolkit wraps that arithmetic in a general data model. Python function
-calls per voxel, counted with cProfile on these models:
+calls per voxel, counted with cProfile on these models
+([`count_calls.py`](count_calls.py), output in [`results/calls-*.json`](results/)):
 
 | Call | PCNtoolkit 1.3.0 | 1.4.0 fork |
 |---|---|---|
-| `NormData.from_dataframe` | 20,800 | 20,600 |
+| `NormData.from_dataframe` | 20,000 | 19,700 |
 | `compute_zscores` | 27,400 | 26,600 |
 | `predict` | 278,700 | 183,300 |
 
@@ -100,9 +130,10 @@ Those calls do the following for each voxel:
 - call `scipy.linalg.solve` with its input checks.
 
 All of this costs the same whatever the number of subjects: from 1 to 100
-subjects, `compute_zscores` goes from 8.4 to 8.8 ms per voxel. So for one
-subject, PCNtoolkit spends more than 10,000 times longer on overhead than on
-arithmetic.
+subjects, `compute_zscores` goes from 8.5 to 8.9 ms per voxel, so each extra
+subject adds only 3.8 µs. The fixed cost per voxel is therefore about 2,300
+times PCNtoolkit's own marginal cost per subject, and about 20,000 times the
+kernel's whole time per voxel (0.41 µs).
 
 The kernel ([`kernel.ts`](../apps/normative-dwi/src/predictor/kernel.ts)) is
 one loop over the voxels that reads typed arrays:
@@ -112,20 +143,21 @@ one loop over the voxels that reads typed arrays:
   a handful of buffers allocated once, so the loop allocates no memory.
 - It does no work for unmodelled or missing voxels.
 
-V8 compiles the loop to machine code. It takes 0.33 µs per voxel and subject,
-about 1,300 cycles.
+V8 compiles the loop to machine code. It takes 0.41 µs per voxel and subject
+(0.33 µs without the event-loop yields of `zmapCpuAsync`, which add about 20 ms
+per subject and marker).
 
-### 3. The Zarr store: reading costs nothing, and the kernel becomes possible
+### 3. The Zarr store: reading becomes cheap, and the kernel becomes possible
 
 Reading one marker the old way means:
 - unpacking 31 archives, which hold 482,746 JSON files;
 - parsing 3.7 GB of JSON text (1.8 GB for the fork's archives);
 - building a PCNtoolkit model object per voxel.
 
-That takes 3.2 minutes. The store holds the same parameters as 9 arrays, with
+That takes 3.1 minutes. The store holds the same parameters as 9 arrays, with
 the voxel as the first axis. Those 9 arrays are 45 objects and 128 MB. The
-reader decompresses them (blosc/zstd) straight into typed arrays in 0.52 s,
-370× faster.
+reader decompresses them (blosc/zstd) straight into typed arrays in 0.59 s
+(0.53 s once warm), about 310× faster.
 
 That alone is only 2% of the old path's time. The store's larger effect is
 indirect: the kernel depends on it. With every voxel's `m`, `A`, hyperparameters, knots and
@@ -136,16 +168,16 @@ lets the browser:
 - check the model design once per marker;
 - cache the store after the first visit.
 
-After the refactor, reading the store (2.1 µs per voxel) costs more than
-scoring (0.33 µs) when scoring one subject. Any further speedup for one
+After the refactor, reading the store (2.2 µs per voxel) costs more than
+scoring (0.41 µs) when scoring one subject. Any further speedup for one
 subject would have to come from reading, not from the kernel.
 
 ### Cohort size
 
 The old path pays its per-voxel overhead once per voxel, whatever the number
-of subjects. The new path reads the store once and then costs 0.08 s per
-subject per marker. So the gain is largest for one subject (18,000×) and
-smaller for 100 (1,400×).
+of subjects. The new path reads the store once and then costs 0.10 s per
+subject per marker. So the gain is largest for one subject (15,000–17,600×
+against 1.3.0 `predict`) and smaller for 100 (1,100×).
 
 The two cohort sizes also give a rough marginal cost for each extra subject.
 That estimate comes from a small difference between two measurements, so treat
@@ -153,12 +185,12 @@ it as a trend:
 
 | Path | Marginal cost per extra subject |
 |---|---|
-| 1.3.0 `predict` | about 11 s |
+| 1.3.0 `predict` | about 10 s |
 | 1.3.0 `compute_zscores` | about 0.9 s |
-| App kernel | 0.08 s |
+| App predictor | 0.10 s |
 
-For very large cohorts, the gain therefore tends towards about 130× against
-`predict`, and about 11× against z-scores only.
+For very large cohorts, the gain therefore tends towards about 100× against
+1.3.0 `predict`, and about 9× against z-scores only.
 
 `n01` also runs one worker per core. The app, in a browser tab, uses one
 core, and these numbers compare one core with one core.
@@ -223,7 +255,7 @@ The store's sizes, per array:
 
 ## Cross-check against the real models
 
-These figures were measured on 2026-10-18 on the UK Biobank models: the age+sex
+These figures were measured on 2026-10-18 and 2026-10-19 on the UK Biobank models: the age+sex
 family, its nmzarr store, and the `nm_priors` archives that proc_nm scores
 with 1.3.0. They cannot be reproduced from this repository, because the
 models are not in it.
@@ -233,13 +265,24 @@ models are not in it.
 | Archive bytes per model, fork | 7,881 | 7,778 (FA, archive 0) |
 | Archives per marker | 1.90 GB | about 1.8 GB (FA) |
 | Store per marker | 147 MB | about 128 MB (640 MB for 5 markers) |
-| Fork `predict` per voxel | 29.1 ms | 29.0 ms |
-| 1.3.0 `predict` per voxel | 45.0 ms | 55 ms, on `nm_priors`, a larger design (age and CSF probability; sex, scanner, sequence and tissue label) |
-| App: read + score, one subject | 0.52 s + 0.08 s | 1.03 s + 0.08 s (FA; one first read) |
+| Fork `predict` per voxel | 29.7 ms | 29.0 ms |
+| 1.3.0 `predict` per voxel | 46.0 ms | 55 ms, on `nm_priors`, a larger design with more covariates and batch effects |
+| App: first read of a marker | 0.59 s | 1.03 s (FA) |
+| App: scoring one subject | 0.10 s (async predictor) | 0.08 s (synchronous `zmapCpu`, before the yields) |
 
-The synthetic store is about 15% larger than the real one, because the
-perturbations put noise in every value, including some that are
-near-constant in real models. The timings match within a few percent.
+Two of these match: the fork's `predict` per voxel, and the archive bytes per
+voxel. The others differ. The synthetic store is about 15% larger than the real
+one (so the 13× is conservative), because the perturbations put noise in every
+value, including some that are near-constant in real models. The synthetic
+first read is 43% faster than the real one. The 1.3.0 figures are on different
+designs.
+
+The support for using synthetic models at all is the design, not these
+comparisons. The synthetic models have the real design (cubic B-spline with 4
+knots, sinh-arcsinh warp, linear variance basis, Sex as the batch effect), so
+they have the same D = 9, 10 knots and 5 hyperparameters per voxel, and the
+app's `checkDesign` accepts them exactly as it accepts the real store. The
+kernel's cost per voxel depends on those sizes, not on the parameter values.
 
 ## Method and limits
 
@@ -256,18 +299,25 @@ near-constant in real models. The timings match within a few percent.
     parameters. It should give the same timings and sizes.
 - **Extrapolation.** The old path's per-voxel steps were timed on 620 voxels,
   20 from each archive, and scaled to 241,373. Unpacking was timed on all 31
-  archives. The new path was measured on the whole marker. Each new-path
-  figure is the median of 5 runs.
+  archives. The new path was measured on the whole marker. The cold figure is
+  the store open plus the first of 5 repeated runs; the warm figure uses the
+  median of the 5 repeats. The old path is a single pass without repeats, but
+  its per-voxel times vary little (see Speed).
 - **Lower bound for `n01`.** The rest of `n01`'s per-voxel work (building the
   frames, statistics, warning capture) is not timed. The real pipeline is
   slower than the old-path numbers here.
-- **Warm cache.** The store was read from local disk with a warm page cache.
+- **Warm page cache.** The store was read from local disk, and the first read
+  came after the store was written, so the operating system had cached it.
   In the browser, a first visit downloads 128 MB per marker (for example,
   about 10 s at 100 Mbit/s). On most connections that is longer than the
   computation. Later visits read from the browser cache.
 - **Shared machine.** The machine was a shared login node, with a load
-  average of about 13 on 192 cores. Each measurement used one core, and the
+  average of about 12 on 192 cores. Each measurement used one core, and the
   BLAS thread counts were set to 1.
+- **Unpacking in `/dev/shm`.** The old path unpacks each archive into
+  `/dev/shm` (RAM), as `n01` does. On a network filesystem, unpacking 10,000
+  small files took about 100 s per archive in a trial run, which would make the
+  old path much slower. `SCRATCH` in `run.sh` chooses the directory.
 - **Version 1.3.0 is not convertible.** PCNtoolkit 1.3.0 builds a 10-column
   design, which nmzarr and the app do not accept. Its numbers come from its
   own fits to the same simulated data. The fork's numbers come from exactly

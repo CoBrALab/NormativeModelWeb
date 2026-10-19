@@ -21,5 +21,5 @@ make_env() {
   fi
 }
 
-make_env "${HERE}/.venv-pcn13" 3.11 "${HERE}/requirements-pcn13.txt"
+make_env "${HERE}/.venv-pcn13" 3.11 "${HERE}/requirements-pcn13.lock"
 make_env "${HERE}/.venv-pcn14" 3.12 "${HERE}/requirements-pcn14.txt"

@@ -1,0 +1,9 @@
+{
+ "pcntoolkit": "1.4.0",
+ "voxels": 20,
+ "calls_per_voxel": {
+  "NormData.from_dataframe": 19723,
+  "compute_zscores": 26647,
+  "predict": 183331
+ }
+}

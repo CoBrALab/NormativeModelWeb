@@ -1,15 +1,15 @@
 {
- "date": "2026-10-18",
- "host": "tri-login02",
+ "date": "2026-10-19",
  "cpu": "AMD EPYC 9655 96-Core Processor",
  "cores": 192,
  "load_average": [
-  13.62939453125,
-  12.3662109375,
-  14.21142578125
+  12.0810546875,
+  12.54248046875,
+  13.587890625
  ],
  "os": "Linux 5.14.0-687.54.1.el9_8.x86_64",
  "node": "v24.15.0",
- "repo_commit": "6278101b5ceea70d56af352046ed166815d1500f",
- "nmzarr_commit": "fab1fb2f6c30889730e5db848dad14a2c3692a1c"
+ "repo_version": "9abf7d1-dirty",
+ "benchmark_files_sha256_16": "1f6e30ac6d6ce7e2",
+ "nmzarr_version": "2026.08.27-45-gfab1fb2-dirty"
 }

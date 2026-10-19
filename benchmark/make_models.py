@@ -46,14 +46,16 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "apps/normative-dwi/tools"))
-from make_synthetic_reference import SEXES, fit, simulate  # noqa: E402
+from make_synthetic_reference import SEXES, fit, simulate
 
 warnings.filterwarnings("ignore")
 
 GRID = (97, 115, 97)
 # UK Biobank 2 mm template affine (voxel -> mm).
 AFFINE = np.array([[-2.0, 0, 0, 96], [0, 2.0, 0, -132], [0, 0, 2.0, -78], [0, 0, 0, 1]])
-TRAINING_CHUNK = 10000  # voxels per archive, as in proc_nm and nmzarr layout.TRAINING_CHUNK
+TRAINING_CHUNK = (
+    10000  # voxels per archive, as in proc_nm and nmzarr layout.TRAINING_CHUNK
+)
 
 
 def make_grid(n_vox, modelled_fraction):
@@ -82,9 +84,13 @@ def timing_sample(modelled, per_chunk):
     """per_chunk modelled voxels from every archive, evenly spaced."""
     sample = []
     for lo in range(0, modelled.size, TRAINING_CHUNK):
-        ids = lo + np.flatnonzero(modelled[lo:lo + TRAINING_CHUNK])
+        ids = lo + np.flatnonzero(modelled[lo : lo + TRAINING_CHUNK])
         if ids.size:
-            sample += ids[np.linspace(0, ids.size - 1, min(per_chunk, ids.size)).round().astype(int)].tolist()
+            sample += ids[
+                np.linspace(0, ids.size - 1, min(per_chunk, ids.size))
+                .round()
+                .astype(int)
+            ].tolist()
     return sorted(set(sample))
 
 
@@ -92,10 +98,24 @@ def dumps_pcn14(o, level=0):
     """json.dumps as PCNtoolkit 1.4 writes models: indent 4, lists of numbers on one line."""
     pad = "    " * (level + 1)
     if isinstance(o, dict) and o:
-        items = ",\n".join(f"{pad}{json.dumps(k)}: {dumps_pcn14(v, level + 1)}" for k, v in o.items())
+        items = ",\n".join(
+            f"{pad}{json.dumps(k)}: {dumps_pcn14(v, level + 1)}" for k, v in o.items()
+        )
         return "{\n" + items + "\n" + "    " * level + "}"
-    if isinstance(o, list) and o and not all(isinstance(x, (int, float, list)) and not isinstance(x, bool) for x in o):
-        return "[\n" + ",\n".join(pad + dumps_pcn14(x, level + 1) for x in o) + "\n" + "    " * level + "]"
+    if (
+        isinstance(o, list)
+        and o
+        and not all(
+            isinstance(x, (int, float, list)) and not isinstance(x, bool) for x in o
+        )
+    ):
+        return (
+            "[\n"
+            + ",\n".join(pad + dumps_pcn14(x, level + 1) for x in o)
+            + "\n"
+            + "    " * level
+            + "]"
+        )
     return json.dumps(o)
 
 
@@ -108,7 +128,9 @@ def serializer_for(texts):
     for dumps in (dumps_pcn14, dumps_indent4):
         if all(dumps(json.loads(t)) == t for t in texts):
             return dumps
-    raise SystemExit("Error: cannot reproduce PCNtoolkit's JSON layout; copies would not be the size of real models")
+    raise SystemExit(
+        "Error: cannot reproduce PCNtoolkit's JSON layout; copies would not be the size of real models"
+    )
 
 
 def perturb(norm, reg_doc, rng, save_dir):
@@ -130,7 +152,10 @@ def perturb(norm, reg_doc, rng, save_dir):
     m0, s0 = sc["m"], sc["s"]
     m1, s1 = m0 + 0.5 * rng.normal(), s0 * (1 + 0.01 * rng.normal())
     sc["m"], sc["s"] = m1, s1
-    remap = lambda x: ((m0 + s0 * x) - m1) / s1  # noqa: E731
+
+    def remap(x):
+        return ((m0 + s0 * x) - m1) / s1
+
     bm, bv = reg["basis_function_mean"], reg["basis_function_var"]
     bm["knots"] = [remap(k) for k in bm["knots"]]
     for basis in (bm, bv):
@@ -144,11 +169,11 @@ def perturb(norm, reg_doc, rng, save_dir):
     reg["m"] = (np.asarray(reg["m"]) * (1 + 0.05 * rng.normal(size=D))).tolist()
     s = np.exp(0.05 * rng.normal(size=D))
     reg["A"] = (np.asarray(reg["A"]) * np.outer(s, s)).tolist()
-    tied_gamma = reg.get("gamma") == reg["hyp"][2:2 + len(reg.get("gamma") or [])]
+    tied_gamma = reg.get("gamma") == reg["hyp"][2 : 2 + len(reg.get("gamma") or [])]
     hyp[2:] += 0.02 * rng.normal(size=hyp.size - 2)
     reg["hyp"] = hyp.tolist()
     if tied_gamma and reg.get("gamma"):
-        reg["gamma"] = hyp[2:2 + len(reg["gamma"])].tolist()
+        reg["gamma"] = hyp[2 : 2 + len(reg["gamma"])].tolist()
     reg["nlZ"] = reg["nlZ"] * (1 + 0.01 * rng.normal())
 
     out = reg_doc["outscaler"]
@@ -166,15 +191,30 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--marker", default="FA")
-    ap.add_argument("--n-vox", type=int, default=304327, help="mask voxels (default: the real FA store)")
+    ap.add_argument(
+        "--n-vox",
+        type=int,
+        default=304327,
+        help="mask voxels (default: the real FA store)",
+    )
     ap.add_argument("--modelled-fraction", type=float, default=241373 / 304327)
-    ap.add_argument("--prototypes", type=int, default=512, help="voxel models fitted by PCNtoolkit")
-    ap.add_argument("--train-subjects", type=int, default=1000, help="simulated subjects per fit")
-    ap.add_argument("--sample-per-chunk", type=int, default=20, help="voxels per archive in the timing sample")
+    ap.add_argument(
+        "--prototypes", type=int, default=512, help="voxel models fitted by PCNtoolkit"
+    )
+    ap.add_argument(
+        "--train-subjects", type=int, default=1000, help="simulated subjects per fit"
+    )
+    ap.add_argument(
+        "--sample-per-chunk",
+        type=int,
+        default=20,
+        help="voxels per archive in the timing sample",
+    )
     ap.add_argument("--seed", type=int, default=20261019)
     args = ap.parse_args()
 
     import pcntoolkit.util.output
+
     pcntoolkit.util.output.Output.set_show_messages(False)
 
     if args.out.exists():
@@ -191,22 +231,30 @@ def main():
     rng_data = np.random.default_rng([args.seed, 1])
     rng_copy = np.random.default_rng([args.seed, 2])
 
-    work = Path(tempfile.mkdtemp(prefix="nm-bench-fit-"))
+    work = Path(tempfile.mkdtemp(prefix=".fit-", dir=args.out))  # under --out, not /tmp
     protos = []
     t_fit = time.perf_counter()
     try:
         for p in range(n_proto):
             model_dir = work / f"p{p}"
             with contextlib.redirect_stdout(io.StringIO()):
-                fit(str(model_dir), simulate(rng_data, args.train_subjects, SEXES[p % 2]))
-            texts = [(model_dir / "model/normative_model.json").read_text(),
-                     (model_dir / "model/micro/regression_model.json").read_text()]
+                fit(
+                    str(model_dir),
+                    simulate(rng_data, args.train_subjects, SEXES[p % 2]),
+                )
+            texts = [
+                (model_dir / "model/normative_model.json").read_text(),
+                (model_dir / "model/micro/regression_model.json").read_text(),
+            ]
             if p == 0:
                 dumps = serializer_for(texts)
             protos.append(tuple(json.loads(t) for t in texts))
             shutil.rmtree(model_dir, ignore_errors=True)
             if (p + 1) % 64 == 0 or p + 1 == n_proto:
-                print(f"fitted {p + 1}/{n_proto} prototypes ({time.perf_counter() - t_fit:.0f}s)", flush=True)
+                print(
+                    f"fitted {p + 1}/{n_proto} prototypes ({time.perf_counter() - t_fit:.0f}s)",
+                    flush=True,
+                )
     finally:
         shutil.rmtree(work, ignore_errors=True)
     fit_s = time.perf_counter() - t_fit
@@ -221,12 +269,22 @@ def main():
             for v in model_ids[(model_ids >= lo) & (model_ids < hi)]:
                 rank = int(np.searchsorted(model_ids, v))
                 if every_voxel_fitted:
-                    norm, reg_doc = copy.deepcopy(protos[rank][0]), copy.deepcopy(protos[rank][1])
-                    norm["save_dir"] = f"/dev/shm/bench/Models_n{args.marker}_c{c}/model_{v}"
+                    norm, reg_doc = (
+                        copy.deepcopy(protos[rank][0]),
+                        copy.deepcopy(protos[rank][1]),
+                    )
+                    norm["save_dir"] = (
+                        f"/dev/shm/bench/Models_n{args.marker}_c{c}/model_{v}"
+                    )
                 else:
-                    norm, reg_doc = perturb(*protos[rng_copy.integers(n_proto)], rng_copy,
-                                            f"/dev/shm/bench/Models_n{args.marker}_c{c}/model_{v}")
-                zf.writestr(f"model_{v}/model/micro/regression_model.json", dumps(reg_doc))
+                    norm, reg_doc = perturb(
+                        *protos[rng_copy.integers(n_proto)],
+                        rng_copy,
+                        f"/dev/shm/bench/Models_n{args.marker}_c{c}/model_{v}",
+                    )
+                zf.writestr(
+                    f"model_{v}/model/micro/regression_model.json", dumps(reg_doc)
+                )
                 zf.writestr(f"model_{v}/model/normative_model.json", dumps(norm))
         print(f"wrote {path.name}", flush=True)
 
@@ -248,8 +306,10 @@ def main():
         "sample": timing_sample(modelled, args.sample_per_chunk),
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-    print(f"done: {n_models} models over {args.n_vox} voxels in {n_chunks} archives "
-          f"({manifest['build_s']:.0f}s)")
+    print(
+        f"done: {n_models} models over {args.n_vox} voxels in {n_chunks} archives "
+        f"({manifest['build_s']:.0f}s)"
+    )
 
 
 if __name__ == "__main__":

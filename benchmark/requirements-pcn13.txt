@@ -1,5 +1,5 @@
 # The old implementation: PCNtoolkit 1.3.0, the release proc_nm pins (nm/requirements_nm.txt).
-# Versions of the reference environment /scratch/parent41/voxel_nm/.venv_pcn13 (Python 3.11.4).
+# Versions of the authors' reference environment (Python 3.11.4).
 pcntoolkit==1.3.0
 numpy==2.4.6
 scipy==1.17.1

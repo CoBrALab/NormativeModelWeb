@@ -14,8 +14,25 @@ import zipfile
 from pathlib import Path
 
 # The arrays the app reads (apps/normative-dwi/src/model-store/index.ts, FIELDS).
-PREDICT_ARRAYS = ["has_model", "m", "A_triu", "hyp", "mean_knots", "inscaler", "outscaler", "be_map", "cov_ranges"]
-DTYPE_BYTES = {"bool": 1, "int16": 2, "int32": 4, "uint8": 1, "float64": 8, "float32": 4}
+PREDICT_ARRAYS = [
+    "has_model",
+    "m",
+    "A_triu",
+    "hyp",
+    "mean_knots",
+    "inscaler",
+    "outscaler",
+    "be_map",
+    "cov_ranges",
+]
+DTYPE_BYTES = {
+    "bool": 1,
+    "int16": 2,
+    "int32": 4,
+    "uint8": 1,
+    "float64": 8,
+    "float32": 4,
+}
 
 
 def files_under(path):
@@ -33,11 +50,25 @@ def json_anatomy(zip_path):
     reg = reg_doc["model"]
     D = len(reg["m"])
     out = reg_doc["outscaler"]
-    needed = [reg["A"], reg["m"], reg["hyp"], reg["basis_function_mean"]["knots"], [out[k] for k in ("m", "s", "min", "max")]]
+    needed = [
+        reg["A"],
+        reg["m"],
+        reg["hyp"],
+        reg["basis_function_mean"]["knots"],
+        [out[k] for k in ("m", "s", "min", "max")],
+    ]
     # The numbers alone, written as compactly as JSON allows.
     needed_text = sum(len(json.dumps(v, separators=(",", ":"))) for v in needed)
     # Store row: m D + A_triu D(D+1)/2 + hyp 5 + knots + inscaler 4 + outscaler 4 + cov_ranges 2 float64, be_map int16s.
-    n_float = D + D * (D + 1) // 2 + len(reg["hyp"]) + len(reg["basis_function_mean"]["knots"]) + 4 + 4 + 2
+    n_float = (
+        D
+        + D * (D + 1) // 2
+        + len(reg["hyp"])
+        + len(reg["basis_function_mean"]["knots"])
+        + 4
+        + 4
+        + 2
+    )
     total = len(norm_text) + len(reg_text)
     return {
         "D": D,
@@ -97,7 +128,11 @@ def store(path):
         "markers": {},
     }
     for marker in markers:
-        arrays = {d.name: array_info(d) for d in sorted((path / marker).iterdir()) if d.is_dir()}
+        arrays = {
+            d.name: array_info(d)
+            for d in sorted((path / marker).iterdir())
+            if d.is_dir()
+        }
         predict = {k: arrays[k] for k in PREDICT_ARRAYS}
         out["markers"][marker] = {
             "bytes": sum(a["bytes"] for a in arrays.values()),
@@ -112,21 +147,29 @@ def store(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--archives", action="append", default=[], help="LABEL=DIR of Models_n*_c*.zip")
+    ap.add_argument(
+        "--archives", action="append", default=[], help="LABEL=DIR of Models_n*_c*.zip"
+    )
     ap.add_argument("--store", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     doc = {
-        "archives": {label: archives(d) for label, d in (a.split("=", 1) for a in args.archives)},
+        "archives": {
+            label: archives(d) for label, d in (a.split("=", 1) for a in args.archives)
+        },
         "store": store(args.store),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(doc, indent=1) + "\n")
     for label, a in doc["archives"].items():
-        print(f"archives {label}: {a['files']} files, {a['bytes'] / 1e6:.0f} MB, {a['bytes_per_model']:.0f} B/model")
+        print(
+            f"archives {label}: {a['files']} files, {a['bytes'] / 1e6:.0f} MB, {a['bytes_per_model']:.0f} B/model"
+        )
     for marker, m in doc["store"]["markers"].items():
-        print(f"store {marker}: {m['bytes'] / 1e6:.1f} MB on disk, app reads {m['predict_bytes'] / 1e6:.1f} MB "
-              f"in {m['predict_objects']} objects, {m['predict_decoded_bytes'] / 1e6:.1f} MB decoded")
+        print(
+            f"store {marker}: {m['bytes'] / 1e6:.1f} MB on disk, app reads {m['predict_bytes'] / 1e6:.1f} MB "
+            f"in {m['predict_objects']} objects, {m['predict_decoded_bytes'] / 1e6:.1f} MB decoded"
+        )
 
 
 if __name__ == "__main__":
