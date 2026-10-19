@@ -131,10 +131,31 @@ async function showOutput(marker: string) {
     return `${where} · ${Number.isFinite(value) ? `${marker} z = ${value.toFixed(3)}` : `${marker} not scored`}`;
   });
   $("emptyState").hidden = true;
-  if (mismatch) return;
-  status(background
-    ? `Showing ${marker} z-map over ${background.name} · opacity grows with |z|, opaque and colour saturated at |z| = ${Z_DISPLAY_LIMIT}`
-    : `Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`);
+  if (!mismatch) status(showingText(marker));
+}
+
+function showingText(marker: string): string {
+  if (!background) return `Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`;
+  const { fromZ, opacity } = overlayStyle();
+  return `Showing ${marker} z-map over ${background.name} · ${fromZ
+    ? `opacity grows with |z|, opaque and colour saturated at |z| = ${Z_DISPLAY_LIMIT}`
+    : `opacity ${Math.round(100 * opacity)}%, colour saturates at |z| = ${Z_DISPLAY_LIMIT}`}`;
+}
+
+/** The z-map's opacity over a background, from the controls. */
+const overlayStyle = () => ({
+  fromZ: ($("opacityFromZ") as HTMLInputElement).checked,
+  opacity: Number(($("overlayOpacity") as HTMLInputElement).value) / 100,
+});
+
+/** Apply the opacity controls: the slider is for uniform opacity only. */
+function applyOverlayStyle() {
+  const style = overlayStyle();
+  ($("overlayOpacity") as HTMLInputElement).disabled = style.fromZ;
+  $("overlayOpacityValue").textContent = `${Math.round(100 * style.opacity)}%`;
+  void viewer.setOverlayOpacity(style)
+    .then(() => { if (shownMarker && outputs[shownMarker] && background) status(showingText(shownMarker)); })
+    .catch((error) => status(`Viewer: ${(error as Error).message}`, true));
 }
 
 /** Least share of the z-map's field of view a background must cover. */
@@ -152,6 +173,7 @@ function setBackground(image: (BackgroundImage & { file: File }) | null) {
   $("backgroundInfo").hidden = !image;
   $("backgroundInfo").textContent = image ? `${image.name} · ${image.header.nx}×${image.header.ny}×${image.header.nz} at ${image.header.voxelSize.map((v) => Number(v.toFixed(2))).join("×")} mm` : "";
   $("clearBackgroundButton").hidden = !image;
+  $("overlayControls").hidden = !image;
 }
 
 /** Show the background change: under the shown z-map, or alone before any run. */
@@ -476,6 +498,8 @@ $("backgroundInput").addEventListener("change", (event) => {
 bindFileDrop($("backgroundDrop"), (files) => {
   void files.then((f) => (f.length ? loadBackground(f) : undefined)).catch((error) => status((error as Error).message, true));
 }, undefined, () => Boolean(running));
+$("opacityFromZ").addEventListener("change", applyOverlayStyle);
+$("overlayOpacity").addEventListener("input", applyOverlayStyle);
 $("clearBackgroundButton").addEventListener("click", () => {
   setBackground(null);
   void redisplay();
@@ -530,4 +554,5 @@ window.addEventListener("pagehide", () => {
 
 void pruneOldCaches();
 await viewer.attach().catch((error) => status(`Viewer unavailable: ${(error as Error).message}`, true));
+applyOverlayStyle(); // the browser may restore the controls on reload
 refreshActions();

@@ -20,7 +20,7 @@
           <div id="mapList"></div>
           <div class="nd-field">
             <label for="backgroundInput">Background image <small>optional</small>
-              <span class="nd-info-icon" tabindex="0" aria-label="About the background image">i<span class="nd-info-tooltip">A T1-weighted or FLAIR image registered to UK Biobank space, at any resolution. For display only: it does not change the z-maps. Over it, each voxel's opacity grows with |z|, and is full from |z| = 3. The app checks that the image covers the maps' field of view, not that it is registered.</span></span>
+              <span class="nd-info-icon" tabindex="0" aria-label="About the background image">i<span class="nd-info-tooltip">A T1-weighted or FLAIR image registered to UK Biobank space, at any resolution. For display only: it does not change the z-maps. Over it, each voxel's opacity grows with |z| and is full from |z| = 3, or, with "Opacity from |z|" off, is the same everywhere. The app checks that the image covers the maps' field of view, not that it is registered.</span></span>
             </label>
             <label class="nd-file" id="backgroundDrop">
               <input id="backgroundInput" type="file" data-neurodesk-input="image" multiple aria-label="Choose a T1-weighted or FLAIR background image" />
@@ -28,6 +28,14 @@
               <span>Drop a T1 or FLAIR in UK Biobank space</span>
             </label>
             <p id="backgroundInfo" class="nd-file-info" hidden></p>
+            <div id="overlayControls" hidden>
+              <label class="nd-check"><input id="opacityFromZ" type="checkbox" checked /> Opacity from |z|</label>
+              <div class="nd-field">
+                <label for="overlayOpacity">Opacity <small id="overlayOpacityValue">100%</small></label>
+                <input id="overlayOpacity" type="range" min="0" max="100" step="5" value="100" disabled aria-describedby="overlayOpacityHint" />
+                <p id="overlayOpacityHint" class="nd-hint">Uniform opacity of the z-map, used when "Opacity from |z|" is off.</p>
+              </div>
+            </div>
             <button id="clearBackgroundButton" class="nd-btn nd-btn-secondary" type="button" hidden>Remove background</button>
           </div>
         </div>
@@ -114,7 +122,7 @@
       <p><strong>Inputs.</strong> Maps must already be registered to that grid, resampled with a B-spline, ANLM-denoised and masked as in the models' training data, and harmonised to UK Biobank. The app checks the grid and refuses other images; it cannot check harmonisation. Unharmonised data will show site effects as deviations.</p>
       <p><strong>Ages.</strong> The models were trained on ages of about 45 to 81. Ages outside a voxel's training range are scored at its nearest end, and the status line says so.</p>
       <p><strong>Output.</strong> One z-map per input map, on the input's grid, marked as a z-score image (NIfTI intent 5). Voxels without a model, or where the input is 0 or not a number, are written as 0; the viewer leaves them transparent and its readout says "not scored".</p>
-      <p><strong>Display.</strong> Colour saturates at |z| = 3. Optionally, a T1-weighted or FLAIR image registered to UK Biobank space, at any resolution, can be shown under the z-map. Over it, each voxel's opacity is |z|/3, full from |z| = 3, so near-normal voxels let the anatomy show through. The background is for display only and does not change the z-maps.</p>
+      <p><strong>Display.</strong> Colour saturates at |z| = 3. Optionally, a T1-weighted or FLAIR image registered to UK Biobank space, at any resolution, can be shown under the z-map. Over it, each voxel's opacity is |z|/3 by default, full from |z| = 3, so near-normal voxels let the anatomy show through; turning off "Opacity from |z|" gives the whole z-map one opacity, set with the slider. The background is for display only and does not change the z-maps.</p>
       <p><strong>Accuracy.</strong> The CPU path reproduces PCNtoolkit's z-scores to better than 1e-6, with ages clamped to the training range as the models' reference pipeline does (PCNtoolkit itself would extrapolate). The GPU path computes in single precision and is tested to agree with the CPU within 1e-3 (relative to |z|, or absolute below 1); the largest difference measured on a real subject was 9e-5, with a software GPU (SwiftShader). If the GPU fails, scoring continues on the CPU.</p>
     </template>
     <template id="privacyContent">

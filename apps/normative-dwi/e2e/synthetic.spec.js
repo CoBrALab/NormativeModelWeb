@@ -236,12 +236,32 @@ test("a structural background sits under the z-map, and the readout still gives 
   }
   expect(scored, "some probes land on scored voxels").toBeGreaterThan(0);
 
-  // Other markers keep the background.
+  // Uniform opacity instead of |z|: the slider takes over, and the view changes with it.
+  const fromZ = page.locator("#opacityFromZ");
+  const slider = page.locator("#overlayOpacity");
+  await expect(fromZ).toBeChecked();
+  await expect(slider).toBeDisabled();
+  const byZ = await canvas.screenshot();
+  await fromZ.uncheck();
+  await expect(slider).toBeEnabled();
+  await expect(page.locator("#statusText")).toContainText("over sub-01_T1w.nii · opacity 100%");
+  const full = await canvas.screenshot();
+  expect(Buffer.compare(full, byZ), "uniform opacity differs from |z| opacity").not.toBe(0);
+  await slider.fill("30");
+  await expect(page.locator("#overlayOpacityValue")).toHaveText("30%");
+  await expect(page.locator("#statusText")).toContainText("opacity 30%");
+  expect(Buffer.compare(await canvas.screenshot(), full), "the slider changes the view").not.toBe(0);
+
+  // Other markers keep the background and the opacity setting.
   await page.locator("#resultList").getByRole("button", { name: "View", exact: true }).nth(1).click();
-  await expect(page.locator("#statusText")).toContainText("z-map over sub-01_T1w.nii");
+  await expect(page.locator("#statusText")).toContainText("z-map over sub-01_T1w.nii · opacity 30%");
+  await fromZ.check();
+  await expect(slider).toBeDisabled();
+  await expect(page.locator("#statusText")).toContainText("opacity grows with |z|");
 
   await page.locator("#clearBackgroundButton").click();
   await expect(page.locator("#backgroundInfo")).toBeHidden();
+  await expect(page.locator("#overlayControls")).toBeHidden();
   await expect(page.locator("#statusText")).toContainText("z-map · colour saturates");
 });
 

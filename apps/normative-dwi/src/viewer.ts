@@ -3,7 +3,8 @@
 // zscore_png). Alone, the z-map is drawn opaque on black (proc_nm draws on
 // white; on black, CET-D1's near-white middle stays distinct from unscored
 // voxels). Over a structural background image, each voxel's opacity is
-// min(1, |z|/3), so near-normal voxels let the anatomy through.
+// min(1, |z|/3) by default, so near-normal voxels let the anatomy through, or
+// one uniform opacity chosen by the user.
 import NiiVue, { MULTIPLANAR_TYPE, SHOW_RENDER, SLICE_TYPE } from "@niivue/niivue";
 import { Z_DISPLAY_LIMIT } from "./config.ts";
 // CET-D1 (Kovesi's diverging_bwr_40-95_c42), 256 entries, from holoviz/colorcet
@@ -23,6 +24,12 @@ export interface ZLayers {
   background?: File;
 }
 
+/** How the z-map blends over a background: opacity from |z|, or `opacity` (0–1) everywhere. */
+export interface OverlayOpacity {
+  fromZ: boolean;
+  opacity: number;
+}
+
 export interface ZViewer {
   attach(): Promise<void>;
   /**
@@ -33,6 +40,8 @@ export interface ZViewer {
    */
   show(layers: ZLayers, readout: ((mm: number[]) => string) | null): Promise<void>;
   setView(view: "multiplanar" | "axial" | "coronal" | "sagittal"): void;
+  /** Set how the z-map blends over a background; kept for later views. */
+  setOverlayOpacity(style: OverlayOpacity): Promise<void>;
 }
 
 export function createZViewer(canvasId: string, onLocation: (text: string) => void): ZViewer {
@@ -40,6 +49,22 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
   const nv = new NiiVue({ backend: "webgl2", isDragDropEnabled: false, backgroundColor: [0, 0, 0, 1] });
   let attached = false;
   let readout: ((mm: number[]) => string) | null = null;
+  let style: OverlayOpacity = { fromZ: true, opacity: 1 };
+  /** Whether the z-map is shown over a background (volumes: background, z-map, |z|). */
+  let layered = false;
+
+  // NiiVue makes an overlay's colormap alpha binary, so the |z| opacity comes
+  // from alpha modulation instead: the hidden |z| layer, windowed to
+  // [0, limit] with exponent 1, scales each voxel's alpha by min(1, |z|/limit).
+  // Unscored voxels (0 in both) are transparent. Without it, the layer's own
+  // opacity applies to every scored voxel alike.
+  async function applyStyle() {
+    if (!layered) return;
+    const [, target, modulator] = nv.volumes;
+    if (!target?.id || !modulator?.id) throw new Error("the viewer did not load the z-map layers");
+    await nv.setModulationImage(target.id, style.fromZ ? modulator.id : "", style.fromZ ? 1 : 0);
+    await nv.setVolume(1, { opacity: style.fromZ ? 1 : style.opacity });
+  }
 
   return {
     async attach() {
@@ -63,6 +88,7 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
     },
     async show({ zmap, overlay, magnitude, background }, describe) {
       readout = describe;
+      layered = false;
       if (background) {
         // The background is the base layer: it sets the grid, and NiiVue
         // resamples the z-map onto it through the affines.
@@ -71,10 +97,8 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
           await nv.loadVolumes([base]);
           return;
         }
-        // NiiVue makes an overlay's colormap alpha binary, so the opacity comes
-        // from alpha modulation instead: a hidden |z| layer windowed to
-        // [0, limit] with exponent 1 scales each voxel's alpha by
-        // min(1, |z|/limit). Unscored voxels (0 in both) are transparent.
+        // Unscored voxels are 0 here, transparent in either style; the
+        // sentinel colormap still draws z ≤ −limit in its first blue.
         await nv.loadVolumes([base, {
           url: overlay,
           name: overlay.name,
@@ -83,9 +107,8 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
           calMax: Z_DISPLAY_LIMIT,
           opacity: 1,
         }, { url: magnitude, name: magnitude.name, calMin: 0, calMax: Z_DISPLAY_LIMIT, opacity: 0, isColorbarVisible: false }]);
-        const [, target, modulator] = nv.volumes;
-        if (!target?.id || !modulator?.id) throw new Error("the viewer did not load the z-map layers");
-        await nv.setModulationImage(target.id, modulator.id, 1);
+        layered = true;
+        await applyStyle();
         return;
       }
       if (!zmap) return nv.removeAllVolumes();
@@ -105,6 +128,10 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
     setView(view) {
       nv.sliceType = { multiplanar: SLICE_TYPE.MULTIPLANAR, axial: SLICE_TYPE.AXIAL, coronal: SLICE_TYPE.CORONAL, sagittal: SLICE_TYPE.SAGITTAL }[view];
       nv.drawScene();
+    },
+    async setOverlayOpacity(next) {
+      style = { ...next };
+      await applyStyle();
     },
   };
 }
