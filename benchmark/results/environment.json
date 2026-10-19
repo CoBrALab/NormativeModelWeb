@@ -1,0 +1,15 @@
+{
+ "date": "2026-10-19",
+ "cpu": "AMD EPYC 9655 96-Core Processor",
+ "cores": 192,
+ "load_average": [
+  12.0810546875,
+  12.54248046875,
+  13.587890625
+ ],
+ "os": "Linux 5.14.0-687.54.1.el9_8.x86_64",
+ "node": "v24.15.0",
+ "repo_version": "9abf7d1-dirty",
+ "benchmark_files_sha256_16": "797755bdc9927bcb",
+ "nmzarr_version": "2026.08.27-45-gfab1fb2-dirty"
+}

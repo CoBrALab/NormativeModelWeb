@@ -1,0 +1,4 @@
+# PCNtoolkit 1.4.0 (fork gdevenyi/PCNToolkit@4219457), which fitted the models the app serves, plus the
+# nmzarr converter's packages. The app's full lock of the reference environment
+# (the authors' reference environment, Python 3.12.4), so the timed packages are pinned too.
+-r ../apps/normative-dwi/tools/requirements-lock.txt
