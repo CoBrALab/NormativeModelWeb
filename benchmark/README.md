@@ -83,7 +83,7 @@ kernel is single-threaded.
 
   | Variable | Contents | Requirements |
   |---|---|---|
-  | `PCN13_PYTHON` | PCNtoolkit 1.3.0, Python 3.11 | `requirements-pcn13.lock`: every package with hashes, resolved from `requirements-pcn13.txt` against the versions of the reference environment |
+  | `PCN13_PYTHON` | PCNtoolkit 1.3.0, Python 3.11 | `requirements-pcn13.lock`: every package with hashes, compiled from `requirements-pcn13.txt` with the versions in `reference-env-versions.txt` as constraints (`uv pip compile --python-version 3.11 --generate-hashes -c reference-env-versions.txt requirements-pcn13.txt -o requirements-pcn13.lock`) |
   | `PCN14_PYTHON` | PCNtoolkit 1.4.0 fork, zarr, nibabel; Python 3.12 | `requirements-pcn14.txt`, which includes the app's `tools/requirements-lock.txt` |
 
   `bash benchmark/setup-envs.sh` creates both as `benchmark/.venv-pcn13` and

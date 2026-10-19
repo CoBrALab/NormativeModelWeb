@@ -10,6 +10,6 @@
  "os": "Linux 5.14.0-687.54.1.el9_8.x86_64",
  "node": "v24.15.0",
  "repo_version": "9abf7d1-dirty",
- "benchmark_files_sha256_16": "1f6e30ac6d6ce7e2",
+ "benchmark_files_sha256_16": "f7e735b35f95994d",
  "nmzarr_version": "2026.08.27-45-gfab1fb2-dirty"
 }

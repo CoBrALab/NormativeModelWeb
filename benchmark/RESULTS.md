@@ -38,7 +38,7 @@ pass, scaled from 620 voxels.
 
 | Typical use | Old path | nmzarr + app kernel | Gain |
 |---|---|---|---|
-| **Score one subject**, one marker, **like for like**: 1.4.0 fork, same models, `compute_zscores` | 34 min | **0.74 s** cold, 0.63 s warm (0.59 s first read + 0.05 s open + 0.10 s scoring) | **2,800–3,300×** |
+| **Score one subject**, one marker, **like for like**: 1.4.0 fork, same models, `compute_zscores` | 34 min | **0.74 s** cold (0.59 s first read + 0.05 s open + 0.10 s scoring), 0.63 s warm (0.53 s read + 0.10 s scoring) | **2,800–3,300×** |
 | Score one subject, one marker, as `n01` does it (`predict`), 1.4.0 fork | 2.0 h | 0.74 / 0.63 s | 9,700–11,300× |
 | Score one subject, one marker, as `n01` does it (`predict`), 1.3.0 (its own D = 10 fits) | 3.1 h | 0.74 / 0.63 s | **15,000–17,600×** |
 | Score one subject, one marker, 1.3.0 z-scores only | 35 min | 0.74 / 0.63 s | 2,800–3,300× |
@@ -133,7 +133,9 @@ All of this costs the same whatever the number of subjects: from 1 to 100
 subjects, `compute_zscores` goes from 8.5 to 8.9 ms per voxel, so each extra
 subject adds only 3.8 µs. The fixed cost per voxel is therefore about 2,300
 times PCNtoolkit's own marginal cost per subject, and about 20,000 times the
-kernel's whole time per voxel (0.41 µs).
+kernel's scoring time per voxel (0.41 µs). With the store read (2.2 µs) the
+kernel's whole time is 2.6 µs, and 8.5 ms / 2.6 µs is about 3,300×, the figure
+in the speed table.
 
 The kernel ([`kernel.ts`](../apps/normative-dwi/src/predictor/kernel.ts)) is
 one loop over the voxels that reads typed arrays:
@@ -311,6 +313,14 @@ kernel's cost per voxel depends on those sizes, not on the parameter values.
   In the browser, a first visit downloads 128 MB per marker (for example,
   about 10 s at 100 Mbit/s). On most connections that is longer than the
   computation. Later visits read from the browser cache.
+- **Provenance of `results/`.** The results were made on 2026-10-19 from the
+  tree at `9abf7d1` plus uncommitted edits, so `environment.json` says
+  `9abf7d1-dirty`. After the run, only comment lines of
+  `requirements-pcn13.txt`, `requirements-pcn13.lock` and
+  `requirements-pcn14.txt` changed (they no longer name local paths), and
+  `benchmark_files_sha256_16` was recomputed by hand over the final files. No
+  script changed, and `reference-env-versions.txt` was added. A fresh run
+  records its own hash.
 - **Shared machine.** The machine was a shared login node, with a load
   average of about 12 on 192 cores. Each measurement used one core, and the
   BLAS thread counts were set to 1.
