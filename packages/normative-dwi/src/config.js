@@ -31,13 +31,15 @@ export function parseMarker(name) {
 
 /**
  * Covariates from form, automation or command-line values, or null unless age
- * is a number above 0 and up to 120 and sex is female or male. The whole age
- * must be a number: "66,5" or "72y" is refused, not read as 66 or 72.
+ * is a number above 0 and up to 120 and sex is female or male. The age must be
+ * written as plain decimal digits: "66,5", "72y", "0x42" or "1e2" is refused,
+ * not read as 66, 72, 66 or 100.
  */
 export function parseCovariates(age, sex) {
   const text = String(age).trim();
+  if (!/^\d+(\.\d+)?$/.test(text)) return null;
   const years = Number(text);
-  if (text === "" || !Number.isFinite(years) || years <= 0 || years > 120) return null;
+  if (years <= 0 || years > 120) return null;
   return sex === "female" || sex === "male" ? { age: years, sex } : null;
 }
 

@@ -84,7 +84,7 @@ try {
     const output = single(values, "output") ?? ".";
     if (!store) throw new UsageError("Give the model store folder with --store.");
     const covariates = parseCovariates(single(values, "age") ?? "", single(values, "sex") ?? "");
-    if (!covariates) throw new UsageError("Give --age (a number of years, above 0 and up to 120) and --sex (female or male).");
+    if (!covariates) throw new UsageError("Give --age (years as decimal digits, such as 66 or 66.5; above 0 and up to 120) and --sex (female or male).");
     if (!positionals.length) throw new UsageError("Give at least one map.");
     const result = await scoreFiles({
       store,

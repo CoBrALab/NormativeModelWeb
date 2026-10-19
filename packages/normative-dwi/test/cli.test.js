@@ -133,6 +133,7 @@ test("bad input fails before anything is written, and says why", async () => {
     [2, ["--store", store, "--age", "66", "--sex", "F", fa], /--age .* --sex/],
     [2, ["--store", store, "--age", "66,5", "--sex", "female", fa], /--age .* --sex/],
     [2, ["--store", store, "--age", "72y", "--sex", "female", fa], /--age .* --sex/],
+    [2, ["--store", store, "--age", "0x42", "--sex", "female", fa], /--age .* --sex/],
     [2, ["--store", store, "--age", "66", "--age", "70", "--sex", "female", fa], /--age is given 2 times/],
     [2, ["--store", store, "--store", store, "--age", "66", "--sex", "female", fa], /--store is given 2 times/],
     [2, ["--store", store, "--age", "66", "--sex", "female"], /Give at least one map/],

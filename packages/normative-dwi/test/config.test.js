@@ -39,8 +39,8 @@ test("clamping notice only when an age was clamped", () => {
 test("covariates need a plausible age and a sex", () => {
   assert.deepEqual(parseCovariates("63.5", "female"), { age: 63.5, sex: "female" });
   assert.deepEqual(parseCovariates(" 72 ", "male"), { age: 72, sex: "male" });
-  // The whole text must be a number: a comma or a unit is a typo, not 66 or 72.
-  for (const [age, sex] of [["", "male"], [" ", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["66,5", "female"], ["72y", "female"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
+  // Plain decimal digits only: a comma, a unit, hex, binary, octal or an exponent is a typo, not a number.
+  for (const [age, sex] of [["", "male"], [" ", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["66,5", "female"], ["72y", "female"], ["0x42", "female"], ["0b1000010", "male"], ["0o102", "male"], ["1e2", "female"], ["6.6e1", "female"], ["66.", "female"], [".5", "male"], ["Infinity", "male"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
     assert.equal(parseCovariates(age, sex), null, `${age}/${sex}`);
   }
 });
