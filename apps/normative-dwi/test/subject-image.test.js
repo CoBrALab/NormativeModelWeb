@@ -145,3 +145,37 @@ test("the map voxel at a world position is found in any axis order or direction"
     assert.equal(locate([500, 0, 0]), null);
   }
 });
+
+test("the overlay copy writes unscored voxels as 0, for the opacity ramp to hide", async () => {
+  const { displayNifti } = await import("../src/subject-image/index.ts");
+  const map = await mapFor(xFirst.dims, xFirst.affine);
+  const mapping = gridMapping(map, grid);
+  const z = Float64Array.from({ length: grid.nVox }, (_, v) => [-7, -3, 0.5, 3, 9][v % 5]);
+  const valid = Uint8Array.from({ length: grid.nVox }, (_, v) => (v % 6 ? 1 : 0));
+  const back = await loadSubjectMap("overlay.nii", displayNifti(z, valid, mapping, map, 3, 0));
+  const scored = new Set(Array.from(mapping).filter((_, v) => valid[v]));
+  for (let v = 0; v < grid.nVox; v++) if (valid[v]) assert.equal(back.data[mapping[v]], Math.min(3, Math.max(-3, z[v])));
+  for (let i = 0; i < back.data.length; i++) if (!scored.has(i)) assert.equal(back.data[i], 0, `voxel ${i}`);
+});
+
+test("a background's field of view is compared with the z-map's in world space", async () => {
+  const { fieldOfViewOverlap, readBackground } = await import("../src/subject-image/index.ts");
+  const zmap = (await mapFor(xFirst.dims, xFirst.affine)).header;
+  const header = async (dims, affine) => (await readBackground("t1.nii", makeNifti(dims, affine, new Float32Array(dims[0] * dims[1] * dims[2])))).header;
+  assert.equal(fieldOfViewOverlap(await header(xFirst.dims, xFirst.affine), zmap), 1);
+  // The same box at 1 mm, and in store (MINC) axis order.
+  assert.equal(fieldOfViewOverlap(await header([11, 9, 7], [[1, 0, 0, -10], [0, 1, 0, -20], [0, 0, 1, -30], [0, 0, 0, 1]]), zmap), 1);
+  assert.equal(fieldOfViewOverlap(await header([4, 5, 6], [[0, 0, 2, -10], [0, 2, 0, -20], [2, 0, 0, -30], [0, 0, 0, 1]]), zmap), 1);
+  // Half the box along x (it spans -10..0 mm), and a box elsewhere.
+  assert.ok(Math.abs(fieldOfViewOverlap(await header([6, 5, 4], [[2, 0, 0, -15], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]]), zmap) - 0.5) < 1e-6);
+  assert.equal(fieldOfViewOverlap(await header(xFirst.dims, [[2, 0, 0, 100], [0, 2, 0, -20], [0, 0, 2, -30], [0, 0, 0, 1]]), zmap), 0);
+});
+
+test("a background must be one 3-D NIfTI-1 image", async () => {
+  const { readBackground } = await import("../src/subject-image/index.ts");
+  await assert.rejects(readBackground("notes.txt", new TextEncoder().encode("x".repeat(400))), /notes\.txt: not a NIfTI-1 image/);
+  const bytes = makeNifti(xFirst.dims, xFirst.affine, new Float32Array(6 * 5 * 4 * 2));
+  new DataView(bytes.buffer).setInt16(40, 4, true);
+  new DataView(bytes.buffer).setInt16(48, 2, true);
+  await assert.rejects(readBackground("dwi.nii", bytes), /dwi\.nii: expected one 3-D image, found 2 volumes/);
+});

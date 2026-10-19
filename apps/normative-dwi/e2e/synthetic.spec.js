@@ -12,6 +12,7 @@ import { serveStore } from "./serve-store.mjs";
 import { assertHardwareAdapter, hardwareGpu, readAdapterInfo } from "../../../test-utils/hardware-gpu.mjs";
 import { storeVoxelAt, syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../test/synthetic-store.js";
 import { zmapCpu } from "../src/predictor/kernel.ts";
+import { makeNifti } from "../test/nifti.js";
 
 const model = syntheticModel();
 const subject = { age: 66.5, sex: "female" };
@@ -193,6 +194,78 @@ for (const layout of ["ras", "minc", "las"]) {
     expect(scored, "some probes land on scored voxels").toBeGreaterThan(0);
   });
 }
+
+/** A 1 mm structural over the model's box (its 2 mm grid spans the same voxel centres), shifted by `offset` mm. */
+function syntheticStructural(offset = 0) {
+  const [n0, n1, n2] = model.shape;
+  const dims = [2 * n2 - 1, 2 * n1 - 1, 2 * n0 - 1];
+  const data = new Float32Array(dims[0] * dims[1] * dims[2]);
+  for (let z = 0; z < dims[2]; z++) for (let y = 0; y < dims[1]; y++) for (let x = 0; x < dims[0]; x++) {
+    data[x + dims[0] * (y + dims[1] * z)] = 100 + 50 * Math.sin(x / 3) * Math.cos(y / 4) + z;
+  }
+  return makeNifti(dims, [[1, 0, 0, -12 + offset], [0, 1, 0, -14], [0, 0, 1, -12], [0, 0, 0, 1]], data);
+}
+
+test("a structural background sits under the z-map, and the readout still gives the true z", async ({ page }, testInfo) => {
+  const path = testInfo.outputPath("sub-01_T1w.nii");
+  await writeFile(path, syntheticStructural());
+  await prepare(page, "cpu");
+  await runToEnd(page);
+  await expect(page.locator("#statusText")).toContainText("z-map(s) ready");
+  const canvas = page.locator("#gl1");
+  const alone = await canvas.screenshot();
+
+  await page.locator("#backgroundInput").setInputFiles(path);
+  await expect(page.locator("#backgroundInfo")).toContainText("sub-01_T1w.nii · 23×27×23 at 1×1×1 mm");
+  await expect(page.locator("#statusText")).toContainText("Showing FA z-map over sub-01_T1w.nii");
+  await expect(page.locator("#statusText")).not.toHaveClass(/error/);
+  expect(Buffer.compare(await canvas.screenshot(), alone), "the background changes the view").not.toBe(0);
+
+  const { z, valid } = zmapCpu(syntheticParams(model, "FA"), subject, maps.FA.y);
+  await page.locator("nd-viewer-toolbar").getByRole("button", { name: "Axial", exact: true }).click();
+  const box = await canvas.boundingBox();
+  let scored = 0;
+  for (const [dx, dy] of [[90, -70], [-110, 40], [30, 95], [-60, -100], [140, 10]]) {
+    await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
+    await expect(page.locator("#location")).toContainText("FA");
+    const text = await page.locator("#location").textContent();
+    const v = storeVoxelAt(model, text.match(/^(-?[\d.]+), (-?[\d.]+), (-?[\d.]+) mm/).slice(1).map(Number));
+    if (v < 0 || !valid[v]) continue;
+    expect(Number(text.match(/z = (-?[\d.]+)/)[1])).toBeCloseTo(z[v], 3);
+    scored++;
+  }
+  expect(scored, "some probes land on scored voxels").toBeGreaterThan(0);
+
+  // Other markers keep the background.
+  await page.locator("#resultList").getByRole("button", { name: "View", exact: true }).nth(1).click();
+  await expect(page.locator("#statusText")).toContainText("z-map over sub-01_T1w.nii");
+
+  await page.locator("#clearBackgroundButton").click();
+  await expect(page.locator("#backgroundInfo")).toBeHidden();
+  await expect(page.locator("#statusText")).toContainText("z-map · colour saturates");
+});
+
+test("a background outside the maps' field of view is refused", async ({ page }, testInfo) => {
+  const path = testInfo.outputPath("elsewhere_T1w.nii");
+  await writeFile(path, syntheticStructural(200));
+  await page.goto("./");
+  await page.locator("#imageInput").setInputFiles(maps.FA.path);
+  await page.locator("#backgroundInput").setInputFiles(path);
+  await expect(page.locator("#statusText")).toHaveClass(/error/);
+  await expect(page.locator("#statusText")).toContainText("elsewhere_T1w.nii: its field of view covers only 0% of the z-map grid");
+  await expect(page.locator("#backgroundInfo")).toBeHidden();
+});
+
+test("a background is shown on its own before any run", async ({ page }, testInfo) => {
+  const path = testInfo.outputPath("sub-01_FLAIR.nii");
+  await writeFile(path, syntheticStructural());
+  await page.goto("./");
+  await page.locator("#backgroundInput").setInputFiles(path);
+  await expect(page.locator("#statusText")).toContainText("Background sub-01_FLAIR.nii loaded");
+  await expect(page.locator("#emptyState")).toBeHidden();
+  await page.locator("#clearBackgroundButton").click();
+  await expect(page.locator("#emptyState")).toBeVisible();
+});
 
 test.describe("persistent cache", () => {
   // Playwright cannot route requests a service worker makes; the preview server

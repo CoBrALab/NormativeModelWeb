@@ -7,6 +7,7 @@ import {
   decodeNiftiBuffer,
   extractNiftiHeader,
   isValidNifti1,
+  parseNiftiHeader,
   readNiftiImageData,
   type NiftiHeader,
 } from "@neurodesk/webapp-components/file-io/nifti";
@@ -174,12 +175,55 @@ export function scatterToNifti(z: Float64Array, valid: Uint8Array, mapping: Int3
 
 /**
  * Display-only copy for the viewer, uncompressed: z saturated to ±limit, and
- * unscored voxels far below −limit (UNSCORED_DISPLAY) so the viewer's
- * transparent colormap entry hides them while z ≤ −limit draws in its end colour.
+ * unscored voxels at `unscored`. The default puts them far below −limit
+ * (UNSCORED_DISPLAY), so the viewer's transparent colormap entry hides them
+ * while z ≤ −limit draws in its end colour. Over a background, 0 is used
+ * instead: the |z| opacity ramp already hides it, and if the viewer
+ * interpolates onto a finer background, edge voxels fade towards 0 rather
+ * than passing through −limit.
  */
-export function displayNifti(z: Float64Array, valid: Uint8Array, mapping: Int32Array, map: SubjectMap, limit: number): Uint8Array {
+export function displayNifti(z: Float64Array, valid: Uint8Array, mapping: Int32Array, map: SubjectMap, limit: number, unscored = UNSCORED_DISPLAY): Uint8Array {
   const saturated = z.map((value) => Math.min(limit, Math.max(-limit, value)));
-  return new Uint8Array(scatter(saturated, valid, mapping, map, UNSCORED_DISPLAY, "display copy"));
+  return new Uint8Array(scatter(saturated, valid, mapping, map, unscored, "display copy"));
+}
+
+export interface BackgroundImage {
+  name: string;
+  header: NiftiHeader;
+}
+
+/** Read a structural image's header for display under the z-map; its voxels are left to the viewer. */
+export async function readBackground(name: string, bytes: ArrayBuffer | Uint8Array): Promise<BackgroundImage> {
+  const decoded = await decodeNiftiBuffer(bytes);
+  if (!isValidNifti1(decoded)) throw new GridMismatchError(`${name}: not a NIfTI-1 image`);
+  const header = parseNiftiHeader(decoded);
+  const frames = header.dims[0] > 3 ? header.dims.slice(4, 1 + header.dims[0]).reduce((a, b) => a * Math.max(1, b), 1) : 1;
+  if (frames > 1) throw new GridMismatchError(`${name}: expected one 3-D image, found ${frames} volumes`);
+  return { name, header };
+}
+
+/** World bounding box (mm) of an image's voxel centres: [min, max] per axis. */
+function worldBox(header: NiftiHeader): [number, number][] {
+  const mm = affineMm(header);
+  const dims = [header.nx, header.ny, header.nz];
+  const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((c) => [0, 1, 2].map((axis) => ((c >> axis) & 1) * (dims[axis] - 1)));
+  return mm.map((row) => {
+    const values = corners.map((p) => row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3]);
+    return [Math.min(...values), Math.max(...values)];
+  });
+}
+
+/** Fraction (0–1) of the z-map's world bounding box that the background's box covers. */
+export function fieldOfViewOverlap(background: NiftiHeader, zmap: NiftiHeader): number {
+  const outer = worldBox(background);
+  let covered = 1;
+  for (const [axis, [lo, hi]] of worldBox(zmap).entries()) {
+    const extent = hi - lo;
+    const shared = Math.min(hi, outer[axis][1]) - Math.max(lo, outer[axis][0]);
+    // A flat axis (one voxel thick) counts as covered when it lies inside.
+    covered *= extent > 0 ? Math.max(0, shared) / extent : shared >= 0 ? 1 : 0;
+  }
+  return covered;
 }
 
 /** The value unscored voxels carry in the display copy. */

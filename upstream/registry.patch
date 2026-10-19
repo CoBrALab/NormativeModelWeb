@@ -8,7 +8,7 @@ index 00000000..29ec3c19
 +"normative-dwi": minor
 +---
 +
-+New app: Normative DWI scores one person's DTI and NODDI maps (FA, MD, ICVF, ISOVF, OD) against voxelwise normative models of the UK Biobank population and writes a z-score map for each, entirely in the browser. It reads PCNtoolkit warped Bayesian linear regression models from an nmzarr (Zarr v3) model store chosen by URL or local folder, checks that each map sits on the UK Biobank 2 mm template grid, and scores with a float64 CPU kernel that reproduces PCNtoolkit to better than 1e-6, or with WebGPU in float32 (within 1e-3, falling back to the CPU). Outputs are NIfTI z-score images on the input grid.
++New app: Normative DWI scores one person's DTI and NODDI maps (FA, MD, ICVF, ISOVF, OD) against voxelwise normative models of the UK Biobank population and writes a z-score map for each, entirely in the browser. It reads PCNtoolkit warped Bayesian linear regression models from an nmzarr (Zarr v3) model store chosen by URL or local folder, checks that each map sits on the UK Biobank 2 mm template grid, and scores with a float64 CPU kernel that reproduces PCNtoolkit to better than 1e-6, or with WebGPU in float32 (within 1e-3, falling back to the CPU). Outputs are NIfTI z-score images on the input grid. The viewer can draw a z-map over an optional T1 or FLAIR background, with opacity rising with |z|.
 diff --git a/docs/architecture/offline-executables.md b/docs/architecture/offline-executables.md
 index 10b8c5c4..c1ce9fcf 100644
 --- a/docs/architecture/offline-executables.md

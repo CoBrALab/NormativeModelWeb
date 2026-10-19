@@ -1,7 +1,9 @@
-// The z-map viewer: the z-map alone on black, in the CET-D1 diverging colormap
-// at ±3, saturating, as in proc_nm's figures (which draw on white; on black,
-// CET-D1's near-white middle stays distinct from unscored voxels)
-// (voxel_nm/Analyses/norm_zscores_common/norm_zscores_common_6_viz.R, zscore_png).
+// The z-map viewer, in the CET-D1 diverging colormap at ±3, saturating, as in
+// proc_nm's figures (voxel_nm/Analyses/norm_zscores_common/norm_zscores_common_6_viz.R,
+// zscore_png). Alone, the z-map is drawn opaque on black (proc_nm draws on
+// white; on black, CET-D1's near-white middle stays distinct from unscored
+// voxels). Over a structural background image, each voxel's opacity is
+// min(1, |z|/3), so near-normal voxels let the anatomy through.
 import NiiVue, { MULTIPLANAR_TYPE, SHOW_RENDER, SLICE_TYPE } from "@niivue/niivue";
 import { Z_DISPLAY_LIMIT } from "./config.ts";
 // CET-D1 (Kovesi's diverging_bwr_40-95_c42), 256 entries, from holoviz/colorcet
@@ -10,14 +12,26 @@ import cetD1 from "./colormaps/cet-d1.json";
 
 export const ZMAP_COLORMAP = "cet-d1";
 
+export interface ZLayers {
+  /** Display copy with unscored voxels below the range (displayNifti's default), for the z-map alone. */
+  zmap?: File;
+  /** Display copy with unscored voxels at 0, for the z-map over `background`. */
+  overlay?: File;
+  /** |z| of `overlay` (saturated, unscored 0): its opacity over `background`. */
+  magnitude?: File;
+  /** A structural image in the same world space, at any resolution. */
+  background?: File;
+}
+
 export interface ZViewer {
   attach(): Promise<void>;
   /**
-   * Show one z-map (a displayNifti copy). `readout` describes the crosshair's
-   * world position (mm) from the true values (the display copy is saturated);
-   * its text is the location line.
+   * Show a z-map alone (`zmap`), over a background (`background` and
+   * `overlay`), the background alone, or (no layers) nothing. `readout` describes the crosshair's
+   * world position (mm) from the true values (the display copies are
+   * saturated); its text is the location line.
    */
-  show(zmap: File, readout: (mm: number[]) => string): Promise<void>;
+  show(layers: ZLayers, readout: ((mm: number[]) => string) | null): Promise<void>;
   setView(view: "multiplanar" | "axial" | "coronal" | "sagittal"): void;
 }
 
@@ -47,8 +61,34 @@ export function createZViewer(canvasId: string, onLocation: (text: string) => vo
       });
       attached = true;
     },
-    async show(zmap, describe) {
+    async show({ zmap, overlay, magnitude, background }, describe) {
       readout = describe;
+      if (background) {
+        // The background is the base layer: it sets the grid, and NiiVue
+        // resamples the z-map onto it through the affines.
+        const base = { url: background, name: background.name, colormap: "gray", opacity: 1, isColorbarVisible: false };
+        if (!overlay || !magnitude) {
+          await nv.loadVolumes([base]);
+          return;
+        }
+        // NiiVue makes an overlay's colormap alpha binary, so the opacity comes
+        // from alpha modulation instead: a hidden |z| layer windowed to
+        // [0, limit] with exponent 1 scales each voxel's alpha by
+        // min(1, |z|/limit). Unscored voxels (0 in both) are transparent.
+        await nv.loadVolumes([base, {
+          url: overlay,
+          name: overlay.name,
+          colormap: ZMAP_COLORMAP,
+          calMin: -Z_DISPLAY_LIMIT - (2 * Z_DISPLAY_LIMIT) / 255,
+          calMax: Z_DISPLAY_LIMIT,
+          opacity: 1,
+        }, { url: magnitude, name: magnitude.name, calMin: 0, calMax: Z_DISPLAY_LIMIT, opacity: 0, isColorbarVisible: false }]);
+        const [, target, modulator] = nv.volumes;
+        if (!target?.id || !modulator?.id) throw new Error("the viewer did not load the z-map layers");
+        await nv.setModulationImage(target.id, modulator.id, 1);
+        return;
+      }
+      if (!zmap) return nv.removeAllVolumes();
       // The colormap's transparency applies to overlays only, so the z-map is
       // loaded twice: an invisible base layer that sets the grid, then the
       // coloured overlay.

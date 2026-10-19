@@ -20,6 +20,10 @@ _Avoid_: UKB space, MNI space, standard space
 Said of a map whose site and scanner effects have already been removed so that it is comparable with UK Biobank data (e.g. by ComBat).
 _Avoid_: corrected, normalised
 
+**Background image**:
+A structural image of the subject (T1-weighted or FLAIR), registered to template space at any resolution, shown under a z-map for display only.
+_Avoid_: anatomy, underlay, template
+
 **Covariates**:
 The subject's age and sex, the only facts about the person the models condition on.
 _Avoid_: demographics, metadata

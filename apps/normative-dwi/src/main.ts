@@ -21,7 +21,7 @@ import { openModelStore, type ModelStore, type StoreSource } from "./model-store
 import { filesDirectory } from "./model-store/directory-store.ts";
 import { clearModelCache, pruneOldCaches } from "./model-store/persistent-cache.ts";
 import { createPredictor, type Predictor, type PredictorKind } from "./predictor/index.ts";
-import { displayNifti, gatherToStore, gridMapping, loadSubjectMap, scatterToNifti, voxelAtMm, type SubjectMap } from "./subject-image/index.ts";
+import { displayNifti, fieldOfViewOverlap, gatherToStore, gridMapping, loadSubjectMap, readBackground, scatterToNifti, voxelAtMm, type BackgroundImage, type SubjectMap } from "./subject-image/index.ts";
 import { createZViewer } from "./viewer.ts";
 import examples from "../examples.json";
 
@@ -68,6 +68,11 @@ interface ZmapOutput {
   description: string;
   file: File;
   display: File;
+  /** Display copy for drawing over a background (unscored voxels 0), and its |z| (the opacity). */
+  overlay: File;
+  magnitude: File;
+  /** The map's header: the grid the z-map is on. */
+  header: SubjectMap["header"];
   /** True z on the map's grid (NaN where not scored), for the viewer's readout. */
   values: Float32Array;
   /** World position (mm) → the map voxel there (index into `values`, centre in mm), or null. */
@@ -79,6 +84,8 @@ let outputs: Record<string, ZmapOutput> = {};
 let store: ModelStore | null = null;
 let storeSource: StoreSource | null = DEFAULT_STORE_URL ? { kind: "url", url: DEFAULT_STORE_URL } : null;
 let running: AbortController | null = null;
+let background: (BackgroundImage & { file: File }) | null = null;
+let shownMarker: string | null = null;
 
 function status(message: string, error = false) {
   $("statusText").textContent = message;
@@ -95,7 +102,7 @@ function refreshActions() {
 
 /** While scoring, nothing that feeds the run may change. */
 function setBusy(busy: boolean) {
-  for (const id of ["imageInput", "storeFolder", "storeUrl", "age", "sex", "compute", "clearCacheButton"]) ($(id) as HTMLInputElement).disabled = busy;
+  for (const id of ["imageInput", "backgroundInput", "clearBackgroundButton", "storeFolder", "storeUrl", "age", "sex", "compute", "clearCacheButton"]) ($(id) as HTMLInputElement).disabled = busy;
   for (const select of $("mapList").querySelectorAll("select")) select.disabled = busy;
   exampleControl.setDisabled(busy);
   refreshActions();
@@ -110,7 +117,13 @@ const results = createResultList<ZmapOutput>({
 async function showOutput(marker: string) {
   const output = outputs[marker];
   if (!output) return;
-  await viewer.show(output.display, (mm) => {
+  const mismatch = background && backgroundProblem(background, output.header);
+  if (mismatch) {
+    setBackground(null);
+    status(mismatch, true);
+  }
+  shownMarker = marker;
+  await viewer.show({ zmap: output.display, overlay: output.overlay, magnitude: output.magnitude, background: background?.file }, (mm) => {
     const voxel = output.locate(mm);
     if (!voxel) return "";
     const value = output.values[voxel.index];
@@ -118,7 +131,53 @@ async function showOutput(marker: string) {
     return `${where} · ${Number.isFinite(value) ? `${marker} z = ${value.toFixed(3)}` : `${marker} not scored`}`;
   });
   $("emptyState").hidden = true;
-  status(`Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`);
+  if (mismatch) return;
+  status(background
+    ? `Showing ${marker} z-map over ${background.name} · opacity grows with |z|, opaque and colour saturated at |z| = ${Z_DISPLAY_LIMIT}`
+    : `Showing ${marker} z-map · colour saturates at |z| = ${Z_DISPLAY_LIMIT}`);
+}
+
+/** Least share of the z-map's field of view a background must cover. */
+const MIN_BACKGROUND_OVERLAP = 0.5;
+
+/** Why a background cannot sit under a z-map on `header`'s grid, if it cannot. */
+function backgroundProblem(image: BackgroundImage, header: SubjectMap["header"]): string | undefined {
+  const overlap = fieldOfViewOverlap(image.header, header);
+  if (overlap >= MIN_BACKGROUND_OVERLAP) return undefined;
+  return `${image.name}: its field of view covers only ${Math.round(100 * overlap)}% of the z-map grid; is it in UK Biobank space?`;
+}
+
+function setBackground(image: (BackgroundImage & { file: File }) | null) {
+  background = image;
+  $("backgroundInfo").hidden = !image;
+  $("backgroundInfo").textContent = image ? `${image.name} · ${image.header.nx}×${image.header.ny}×${image.header.nz} at ${image.header.voxelSize.map((v) => Number(v.toFixed(2))).join("×")} mm` : "";
+  $("clearBackgroundButton").hidden = !image;
+}
+
+/** Show the background change: under the shown z-map, or alone before any run. */
+async function redisplay() {
+  if (shownMarker && outputs[shownMarker]) return showOutput(shownMarker);
+  if (!background) {
+    await viewer.show({}, null);
+    $("emptyState").hidden = false;
+    return;
+  }
+  await viewer.show({ background: background.file }, null);
+  $("emptyState").hidden = true;
+  status(`Background ${background.name} loaded · compute z-maps to draw them over it`);
+}
+
+/** Read a background image; the first file is used. */
+async function loadBackground(files: File[]) {
+  if (running) throw new Error("Wait for the current run to finish, or cancel it.");
+  const [file] = files;
+  const image = { ...(await readBackground(file.name, await file.arrayBuffer())), file };
+  const reference = (shownMarker && outputs[shownMarker]?.header) || inputs[0]?.map.header;
+  const problem = reference && backgroundProblem(image, reference);
+  if (problem) throw new Error(problem);
+  setBackground(image);
+  await redisplay();
+  if (files.length > 1) status(`Background: using ${file.name}; ignored ${files.slice(1).map((f) => f.name).join(", ")}`, true);
 }
 
 function renderMapList() {
@@ -165,6 +224,7 @@ function reportFiles() {
 
 function resetOutputs() {
   outputs = {};
+  shownMarker = null;
   results.render({});
 }
 
@@ -216,6 +276,7 @@ function clearMaps() {
   if (running) return; // e.g. the status-bar Undo after a page drop, during a run
   loadGeneration++;
   inputs = [];
+  setBackground(null); // it belongs to the subject being replaced
   resetOutputs();
   renderMapList();
   refreshActions();
@@ -306,6 +367,9 @@ async function run(cov: Covariates, prefer: PredictorKind, signal: AbortSignal):
       description: `${input.marker} z-map · ${scored.toLocaleString()} voxels`,
       file: new File([scatterToNifti(z, valid, mapping, input.map, description) as Uint8Array<ArrayBuffer>], name, { type: "application/gzip" }),
       display: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT) as Uint8Array<ArrayBuffer>], name.replace(/\.gz$/, "")),
+      overlay: new File([displayNifti(z, valid, mapping, input.map, Z_DISPLAY_LIMIT, 0) as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, "_overlay.nii")),
+      magnitude: new File([displayNifti(z.map(Math.abs), valid, mapping, input.map, Z_DISPLAY_LIMIT, 0) as Uint8Array<ArrayBuffer>], name.replace(/\.nii\.gz$/, "_abs.nii")),
+      header: input.map.header,
       values,
       locate: voxelAtMm(input.map.header),
     };
@@ -401,6 +465,20 @@ $("imageInput").addEventListener("change", (event) => {
   target.value = "";
   exampleControl.cancel();
   if (files.length) void loadMaps(files).catch((error) => status((error as Error).message, true));
+});
+$("backgroundInput").addEventListener("change", (event) => {
+  const target = event.target as HTMLInputElement;
+  const files = Array.from(target.files ?? []);
+  target.value = "";
+  if (files.length) void loadBackground(files).catch((error) => status((error as Error).message, true));
+});
+// No page-level target: a whole-window drop still goes to the maps.
+bindFileDrop($("backgroundDrop"), (files) => {
+  void files.then((f) => (f.length ? loadBackground(f) : undefined)).catch((error) => status((error as Error).message, true));
+}, undefined, () => Boolean(running));
+$("clearBackgroundButton").addEventListener("click", () => {
+  setBackground(null);
+  void redisplay();
 });
 bindFileDrop($("dropZone"), (files) => {
   exampleControl.cancel();
