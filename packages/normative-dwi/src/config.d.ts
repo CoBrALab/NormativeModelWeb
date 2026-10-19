@@ -3,7 +3,9 @@ import type { Covariates, Marker } from "./model.js";
 /** The marker a file name names, or null when it names none or several. */
 export function guessMarker(fileName: string): Marker | null;
 export function isMarker(value: string): value is Marker;
-/** Covariates from form, automation or command-line values, or null unless age > 0 and sex is female or male. */
+/** The marker a name gives (FA, MD, ICVF, ISOVF or OD, or an alias such as NDI or ODI), in any case, or null. */
+export function parseMarker(name: string): Marker | null;
+/** Covariates from form, automation or command-line values, or null unless age is a number in (0, 120] and sex is female or male. */
 export function parseCovariates(age: string, sex: string): Covariates | null;
 /** Output file name for a marker's z-map. */
 export function zmapFileName(marker: Marker): string;

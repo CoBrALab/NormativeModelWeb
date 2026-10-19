@@ -24,10 +24,20 @@ export function isMarker(value) {
   return MARKERS.includes(value);
 }
 
-/** Covariates from form, automation or command-line values, or null unless age > 0 and sex is female or male. */
+/** The marker a name gives (FA, MD, ICVF, ISOVF or OD, or an alias such as NDI or ODI), in any case, or null. */
+export function parseMarker(name) {
+  return MARKER_TOKENS[name.trim().toUpperCase()] ?? null;
+}
+
+/**
+ * Covariates from form, automation or command-line values, or null unless age
+ * is a number above 0 and up to 120 and sex is female or male. The whole age
+ * must be a number: "66,5" or "72y" is refused, not read as 66 or 72.
+ */
 export function parseCovariates(age, sex) {
-  const years = Number.parseFloat(age);
-  if (!Number.isFinite(years) || years <= 0 || years > 120) return null;
+  const text = String(age).trim();
+  const years = Number(text);
+  if (text === "" || !Number.isFinite(years) || years <= 0 || years > 120) return null;
   return sex === "female" || sex === "male" ? { age: years, sex } : null;
 }
 

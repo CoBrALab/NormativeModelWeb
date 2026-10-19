@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clampingNotice, guessMarker, parseCovariates, trainingRange, zmapFileName } from "../src/config.js";
+import { clampingNotice, guessMarker, parseCovariates, parseMarker, trainingRange, zmapFileName } from "../src/config.js";
 
 test("markers are recognised from common file names", () => {
   for (const [name, marker] of [
@@ -38,7 +38,14 @@ test("clamping notice only when an age was clamped", () => {
 
 test("covariates need a plausible age and a sex", () => {
   assert.deepEqual(parseCovariates("63.5", "female"), { age: 63.5, sex: "female" });
-  for (const [age, sex] of [["", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
+  assert.deepEqual(parseCovariates(" 72 ", "male"), { age: 72, sex: "male" });
+  // The whole text must be a number: a comma or a unit is a typo, not 66 or 72.
+  for (const [age, sex] of [["", "male"], [" ", "male"], ["undefined", "male"], ["0", "male"], ["-4", "female"], ["130", "male"], ["66,5", "female"], ["72y", "female"], ["60", ""], ["60", "undefined"], ["60", "F"]]) {
     assert.equal(parseCovariates(age, sex), null, `${age}/${sex}`);
   }
+});
+
+test("a marker is parsed from its name or a file-name alias, in any case", () => {
+  for (const [name, marker] of [["FA", "FA"], ["md", "MD"], ["NDI", "ICVF"], ["fwf", "ISOVF"], ["FISO", "ISOVF"], ["odi", "OD"], [" OD ", "OD"]]) assert.equal(parseMarker(name), marker, name);
+  for (const name of ["", "XY", "FA_MD", "T1"]) assert.equal(parseMarker(name), null, name);
 });

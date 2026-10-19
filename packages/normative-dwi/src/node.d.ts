@@ -6,7 +6,7 @@ import type { ModelStore } from "./model-store/index.js";
 export function folderDirectory(path: string, name?: string): DirectoryLike;
 /** Open the nmzarr model store in a local folder. */
 export function openFolderStore(path: string): Promise<ModelStore>;
-/** The marker of each map: from `markers` (keyed by the path as given, or its file name), else from the file name. */
+/** The marker of each map: from `markers` (keyed by the path as given, or its file name; a marker or an alias), else from the file name. */
 export function mapMarkers(maps: readonly string[], markers?: Record<string, string>): { path: string; marker: Marker }[];
 
 export interface ScoredFile {
@@ -19,7 +19,9 @@ export interface ScoredFile {
 
 /**
  * Score each map against the store and write OUTPUT/<MARKER>_zscore.nii.gz.
- * Every input is checked (marker, store, grid, existing outputs) before any is scored.
+ * Every input is checked before any is scored, and the z-maps are written only
+ * once every map is scored: a run that fails leaves nothing behind. An existing
+ * file is never overwritten.
  */
 export function scoreFiles(options: {
   store: string;

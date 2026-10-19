@@ -28,9 +28,10 @@ normative-dwi --store ukb_blr_agesex.zarr --age 72 --sex female -o results \
 ```
 
 - **Store:** `--store` takes a local nmzarr store folder. There is no default yet: the UK Biobank-derived store is not cleared for redistribution.
-- **Maps:** the inputs are FA, MD, ICVF, ISOVF or OD maps, in any subset. They must be on the UK Biobank 2 mm grid and harmonised to UK Biobank. The marker comes from the file name (`FA`, `MD`, `ICVF`/`NDI`, `ISOVF`/`FWF`/`FISO` or `OD`/`ODI` as a separate word). For any other name, give it with `--marker FILE=MARKER`.
-- **Output:** `<MARKER>_zscore.nii.gz` in the output folder (`-o`, by default the current folder), on the map's own grid, 0 where unscored. Existing z-maps are not overwritten.
-- **Checks:** every input is checked before any is scored: the covariates, each map's marker, the store's markers and each map's grid. Any error stops the run, and nothing is written.
+- **Maps:** the inputs are FA, MD, ICVF, ISOVF or OD maps, in any subset. They must be on the UK Biobank 2 mm grid and harmonised to UK Biobank. The marker comes from the file name (`FA`, `MD`, `ICVF`/`NDI`, `ISOVF`/`FWF`/`FISO` or `OD`/`ODI` as a separate word). For any other name, give it with `--marker FILE=MARKER`, which takes the same names and aliases.
+- **Output:** `<MARKER>_zscore.nii.gz` in the output folder (`-o`, by default the current folder), on the map's own grid, 0 where unscored. An existing file is never overwritten: the write itself refuses one (`wx`), even one that appears during the run.
+- **Checks:** every input is checked before any is scored: the covariates, each map's marker, the store's markers and each map's grid. The z-maps are held until every map is scored, so a map that fails later (for example, a marker fitted with another design) stops the run with nothing written. If a write fails, the z-maps this run already wrote are removed.
+- **Exit status:** 0 on success, 1 when the inputs or the scoring fail, 2 on a usage error (a missing or repeated option, an age that is not a number, no map).
 - **Messages:** progress and warnings go to standard error. One example is an age outside a model's training range, which is scored at the nearest end. The paths of the written files go to standard output.
 - **Speed:** it runs on one CPU core. A whole brain with all five markers took about 4 s in our measurement.
 

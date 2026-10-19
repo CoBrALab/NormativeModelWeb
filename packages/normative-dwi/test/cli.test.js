@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,7 +16,7 @@ import { gridMapping, loadSubjectMap } from "../src/subject-image/index.js";
 import { syntheticMap, syntheticModel, syntheticParams, writeSyntheticStore } from "../src/synthetic-store.js";
 
 const BIN = new URL("../bin/normative-dwi.js", import.meta.url).pathname;
-const model = syntheticModel({ markers: ["FA", "MD"] });
+const model = syntheticModel({ markers: ["FA", "MD", "OD"] });
 const grid = { ...model, affine: Float64Array.from(model.affine) };
 
 /** Run the command line; resolves with { code, stdout, stderr } whatever the exit code. */
@@ -36,6 +36,12 @@ test.before(async () => {
   await writeFile(join(folder, "sub-01_FA.nii"), syntheticMap(model, "FA", 11, "ras").bytes);
   await writeFile(join(folder, "sub-01_MD.nii"), syntheticMap(model, "MD", 12, "minc").bytes);
   await writeFile(join(folder, "subject.nii"), syntheticMap(model, "MD", 12, "las").bytes);
+  await writeFile(join(folder, "subject-b.nii"), syntheticMap(model, "OD", 13, "ras").bytes);
+  // A store whose MD models were fitted with another warp: refused only when MD is read, after FA is scored.
+  await writeSyntheticStore(join(folder, "store-bad-md"), model);
+  const root = JSON.parse(await readFile(join(folder, "store-bad-md", "zarr.json"), "utf8"));
+  root.consolidated_metadata.metadata.MD.attributes.regression.warp_name = "warpboxcox";
+  await writeFile(join(folder, "store-bad-md", "zarr.json"), JSON.stringify(root));
 });
 test.after(() => rm(folder, { recursive: true, force: true }));
 
@@ -66,11 +72,12 @@ test("scores each map against its marker's models and writes the web app's z-map
   assert.doesNotMatch(result.stderr, /outside the model/);
 });
 
-test("a map whose name gives no marker is scored with --marker", async () => {
+test("a map whose name gives no marker is scored with --marker, which takes the file-name aliases too", async () => {
   const out = join(folder, "out-marker");
-  const result = await cli(["--store", join(folder, "store"), "--age", "71.5", "--sex", "male", "-o", out, "--marker", "subject.nii=md", join(folder, "subject.nii")]);
+  const result = await cli(["--store", join(folder, "store"), "--age", "71.5", "--sex", "male", "-o", out, "--marker", "subject.nii=md", "--marker", "subject-b.nii=ODI", join(folder, "subject.nii"), join(folder, "subject-b.nii")]);
   assert.equal(result.code, 0, result.stderr);
   await assertMatchesKernel(join(out, "MD_zscore.nii.gz"), "MD", 12, "las", { age: 71.5, sex: "male" });
+  await assertMatchesKernel(join(out, "OD_zscore.nii.gz"), "OD", 13, "ras", { age: 71.5, sex: "male" });
 });
 
 test("an age outside the training range is scored at its nearest end, with a warning", async () => {
@@ -90,6 +97,28 @@ test("existing z-maps are not overwritten", async () => {
   assert.match(again.stderr, /Not overwriting .*FA_zscore\.nii\.gz/);
 });
 
+test("a map that fails while scoring leaves nothing behind, not even the maps scored before it", async () => {
+  const out = join(folder, "out-partial", "nested");
+  const result = await cli(["--store", join(folder, "store-bad-md"), "--age", "66", "--sex", "female", "-o", out, join(folder, "sub-01_FA.nii"), join(folder, "sub-01_MD.nii")]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^FA: \d+ voxels scored$/m, "FA was scored");
+  assert.match(result.stderr, /MD: unsupported model design \(regression\.warp_name is "warpboxcox"/);
+  assert.equal(result.stdout, "");
+  assert.ok(!existsSync(join(folder, "out-partial")), "no z-map and no folder left");
+});
+
+test("a path that appears at write time is not overwritten, and the run's other z-maps are removed", async () => {
+  const out = join(folder, "out-link");
+  await mkdir(out);
+  // A dangling link passes the existence check before scoring; the exclusive write still refuses it.
+  await symlink(join(folder, "elsewhere.nii.gz"), join(out, "MD_zscore.nii.gz"));
+  const result = await cli(["--store", join(folder, "store"), "--age", "66", "--sex", "female", "-o", out, join(folder, "sub-01_FA.nii"), join(folder, "sub-01_MD.nii")]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Not overwriting .*MD_zscore\.nii\.gz/);
+  assert.deepEqual(await readdir(out), ["MD_zscore.nii.gz"], "FA's z-map removed, the link left alone");
+  assert.ok(!existsSync(join(folder, "elsewhere.nii.gz")), "nothing written through the link");
+});
+
 test("bad input fails before anything is written, and says why", async () => {
   const store = join(folder, "store");
   const fa = join(folder, "sub-01_FA.nii");
@@ -97,21 +126,29 @@ test("bad input fails before anything is written, and says why", async () => {
   const { bytes } = syntheticMap(syntheticModel({ shape: [10, 14, 12], markers: ["FA"] }), "FA");
   await writeFile(offGrid, bytes);
   const out = join(folder, "out-bad");
-  for (const [args, message] of [
-    [["--age", "66", "--sex", "female", fa], /--store/],
-    [["--store", store, "--sex", "female", fa], /--age .* --sex/],
-    [["--store", store, "--age", "66", "--sex", "F", fa], /--age .* --sex/],
-    [["--store", join(folder, "nowhere"), "--age", "66", "--sex", "female", fa], /not a folder/],
-    [["--store", folder, "--age", "66", "--sex", "female", fa], /is not a readable model store/],
-    [["--store", store, "--age", "66", "--sex", "female", join(folder, "subject.nii")], /names no single marker; add --marker subject\.nii=/],
-    [["--store", store, "--age", "66", "--sex", "female", "--marker", "subject.nii=XY", join(folder, "subject.nii")], /XY is not a marker/],
-    [["--store", store, "--age", "66", "--sex", "female", "--marker", "other.nii=FA", fa], /--marker other\.nii: no such map/],
-    [["--store", store, "--age", "66", "--sex", "female", fa, offGrid], /Two maps for FA/],
-    [["--store", store, "--age", "66", "--sex", "female", "--marker", "subject.nii=OD", join(folder, "subject.nii")], /the store has no OD models/],
-    [["--store", store, "--age", "66", "--sex", "female", offGrid], /sub-02_FA\.nii: not on the 12×14×12 template grid/],
+  // Usage errors exit with 2, errors found in the inputs with 1.
+  for (const [code, args, message] of [
+    [2, ["--age", "66", "--sex", "female", fa], /--store/],
+    [2, ["--store", store, "--sex", "female", fa], /--age .* --sex/],
+    [2, ["--store", store, "--age", "66", "--sex", "F", fa], /--age .* --sex/],
+    [2, ["--store", store, "--age", "66,5", "--sex", "female", fa], /--age .* --sex/],
+    [2, ["--store", store, "--age", "72y", "--sex", "female", fa], /--age .* --sex/],
+    [2, ["--store", store, "--age", "66", "--age", "70", "--sex", "female", fa], /--age is given 2 times/],
+    [2, ["--store", store, "--store", store, "--age", "66", "--sex", "female", fa], /--store is given 2 times/],
+    [2, ["--store", store, "--age", "66", "--sex", "female"], /Give at least one map/],
+    [2, ["--store", store, "--age", "66", "--sex", "female", "--marker", "FA", fa], /expected FILE=MARKER/],
+    [2, ["--store", store, "--age", "66", "--sex", "female", "--unknown", fa], /Unknown option '--unknown'/],
+    [1, ["--store", join(folder, "nowhere"), "--age", "66", "--sex", "female", fa], /not a folder/],
+    [1, ["--store", folder, "--age", "66", "--sex", "female", fa], /is not a readable model store/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", join(folder, "subject.nii")], /names no single marker; add --marker subject\.nii=/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", "--marker", "subject.nii=XY", join(folder, "subject.nii")], /XY is not a marker/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", "--marker", "other.nii=FA", fa], /--marker other\.nii: no such map/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", fa, offGrid], /Two maps for FA/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", "--marker", "subject.nii=NDI", join(folder, "subject.nii")], /the store has no ICVF models/],
+    [1, ["--store", store, "--age", "66", "--sex", "female", offGrid], /sub-02_FA\.nii: not on the 12×14×12 template grid/],
   ]) {
     const result = await cli([...args, "-o", out]);
-    assert.equal(result.code, 1, `${args.join(" ")} should fail`);
+    assert.equal(result.code, code, `${args.join(" ")} should exit with ${code}`);
     assert.match(result.stderr, message, args.join(" "));
     assert.equal(result.stdout, "");
     assert.ok(!existsSync(out), "nothing written");
@@ -119,15 +156,17 @@ test("bad input fails before anything is written, and says why", async () => {
 });
 
 test("help and self-check", async () => {
-  const help = await cli(["--help"]);
-  assert.equal(help.code, 0);
-  assert.match(help.stdout, /^Usage: normative-dwi --store STORE/);
+  for (const args of [["--help"], []]) {
+    const help = await cli(args);
+    assert.equal(help.code, 0);
+    assert.match(help.stdout, /^Usage: normative-dwi --store STORE/);
+  }
   const check = await cli(["self-check"]);
   assert.equal(check.code, 0, check.stderr);
   const report = JSON.parse(check.stdout);
   assert.equal(report.ok, true);
   assert.ok(report.scored > 0);
-  assert.equal((await cli(["self-check", "--age", "66"])).code, 1);
+  assert.equal((await cli(["self-check", "--age", "66"])).code, 2);
 });
 
 const STORE = process.env.NMZARR_STORE;

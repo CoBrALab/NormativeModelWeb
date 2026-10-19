@@ -1,4 +1,4 @@
-// Float64 z-score kernel: the reference implementation (docs/adr/0001).
+// Float64 z-score kernel: the reference implementation (apps/normative-dwi/docs/adr/0001).
 //
 // Reproduces PCNtoolkit 1.4.0 BLR prediction (fork gdevenyi/PCNToolkit@4219457,
 // not released) for the nmzarr "ukb_blr_agesex"

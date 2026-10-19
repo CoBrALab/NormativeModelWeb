@@ -1,10 +1,10 @@
 // Node side of the command line: a model store in a local folder, maps and
 // z-maps as files. Scoring itself is the web app's (score.js).
 import { existsSync, openAsBlob, statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { guessMarker, isMarker, zmapFileName } from "./config.js";
+import { basename, dirname, join, resolve } from "node:path";
+import { guessMarker, parseMarker, zmapFileName } from "./config.js";
 import { MARKERS } from "./model.js";
 import { directoryStore } from "./model-store/directory-store.js";
 import { openModelStore } from "./model-store/index.js";
@@ -39,12 +39,15 @@ export async function openFolderStore(path) {
   return openModelStore({ kind: "store", store: directoryStore(folderDirectory(resolve(path))), label: path });
 }
 
-/** The marker of each map: from `markers` (keyed by the path as given, or its file name), else from the file name. */
+/**
+ * The marker of each map: from `markers` (keyed by the path as given, or its
+ * file name; a marker or one of its aliases, as in file names), else from the file name.
+ */
 export function mapMarkers(maps, markers = {}) {
   const chosen = maps.map((path) => {
     const named = markers[path] ?? markers[basename(path)];
-    if (named !== undefined && !isMarker(named)) throw new Error(`${path}: ${named} is not a marker (${MARKERS.join(", ")})`);
-    const marker = named ?? guessMarker(basename(path));
+    if (named !== undefined && !parseMarker(named)) throw new Error(`${path}: ${named} is not a marker (${MARKERS.join(", ")}, or NDI, FWF, FISO, ODI)`);
+    const marker = named !== undefined ? parseMarker(named) : guessMarker(basename(path));
     if (!marker) throw new Error(`${path}: the file name names no single marker; add --marker ${basename(path)}=<${MARKERS.join("|")}>`);
     return { path, marker };
   });
@@ -60,7 +63,9 @@ export function mapMarkers(maps, markers = {}) {
 
 /**
  * Score each map against the store and write OUTPUT/<MARKER>_zscore.nii.gz.
- * Every input is checked (marker, store, grid, existing outputs) before any is scored.
+ * Every input is checked (marker, store, grid, existing outputs) before any is
+ * scored, and the z-maps are written only once every map is scored: a run that
+ * fails leaves nothing behind. An existing file is never overwritten.
  */
 export async function scoreFiles({ store: storePath, maps, markers, covariates, output, onStatus = () => {} }) {
   if (!maps.length) throw new Error("Give at least one map");
@@ -76,18 +81,38 @@ export async function scoreFiles({ store: storePath, maps, markers, covariates, 
   }
   const existing = inputs.filter((input) => existsSync(input.out)).map((input) => input.out);
   if (existing.length) throw new Error(`Not overwriting ${existing.join(", ")}`);
-  await mkdir(output, { recursive: true });
 
   const predictor = cpuPredictor();
-  const written = [];
+  const scored = [];
   for (const { path, marker, map, out } of inputs) {
     const result = await scoreMap({ store, map, marker, covariates, predictor, onStatus });
-    await writeFile(out, result.nifti);
     onStatus(`${marker}: ${result.scored} voxels scored`);
     if (result.notice) onStatus(`${marker}: ${result.notice}`);
-    written.push({ input: path, marker, output: out, scored: result.scored, clamped: result.clamped });
+    scored.push({ input: path, marker, output: out, scored: result.scored, clamped: result.clamped, nifti: result.nifti });
   }
-  return { store: store.label, family: store.family, covariates, files: written };
+  await writeAll(output, scored);
+  return { store: store.label, family: store.family, covariates, files: scored.map(({ nifti, ...file }) => file) };
+}
+
+/** Write every z-map or none: "wx" refuses an existing path (or a link) at write time, and a failure removes what this run wrote. */
+async function writeAll(output, files) {
+  const created = await mkdir(output, { recursive: true });
+  const written = [];
+  try {
+    for (const file of files) {
+      await writeFile(file.output, file.nifti, { flag: "wx" }).catch((error) => {
+        throw error.code === "EEXIST" ? new Error(`Not overwriting ${file.output}`) : error;
+      });
+      written.push(file.output);
+    }
+  } catch (error) {
+    await Promise.all(written.map((path) => rm(path, { force: true })));
+    // The folders this run created, innermost first; rmdir leaves any that something else wrote into.
+    if (created) {
+      for (let dir = resolve(output); dir.startsWith(resolve(created)); dir = dirname(dir)) if (!(await rmdir(dir).then(() => true, () => false))) break;
+    }
+    throw error;
+  }
 }
 
 /** Score a generated store and map in a temporary folder and check the written z-map against the float64 kernel. */
