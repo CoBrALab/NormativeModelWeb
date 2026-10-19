@@ -1,0 +1,17 @@
+# The app is developed here and upstreamed to neurodesk/webapps (vendored as a
+# submodule). The shared components package is a member of this workspace so
+# the app depends on it with `workspace:*`, exactly as it will upstream.
+# Run `pnpm link-upstream` first.
+packages:
+  - "apps/*"
+  - "vendor/webapps/packages/components"
+allowBuilds:
+  cbor-extract: false
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@niivue/niivue@1.0.0-rc.14'
+# Upstream's test-utils (symlinked at ./test-utils) load @playwright/test from
+# the submodule's install; the app must use that same copy, or Playwright
+# refuses to load twice.
+overrides:
+  '@playwright/test': 'link:./vendor/webapps/node_modules/@playwright/test'

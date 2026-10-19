@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 2,
+  "app": "normative-dwi",
+  "title": "Normative DWI",
+  "description": "Voxelwise normative z-score maps for DTI and NODDI maps in UK Biobank 2 mm space, against PCNtoolkit models of the UK Biobank population.",
+  "defaultOperation": "zmap",
+  "operations": {
+    "zmap": {
+      "title": "Normative z-maps",
+      "description": "Score each map against the voxel models for its marker (named in the file name: FA, MD, ICVF, ISOVF or OD) given the subject's age and sex.",
+      "mode": "batch",
+      "inputs": {
+        "maps": {
+          "source": "files",
+          "type": "neuro:volume",
+          "formats": [
+            "nifti"
+          ],
+          "space": "UKB-2mm",
+          "description": "Harmonised FA, MD, ICVF, ISOVF or OD maps on the UK Biobank 2 mm grid",
+          "minimum": 1,
+          "maximum": 5
+        }
+      },
+      "parameters": {
+        "age": {
+          "type": "number",
+          "description": "Age in years (required)",
+          "minimum": 0,
+          "maximum": 120
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "female",
+            "male"
+          ],
+          "description": "Sex (required)"
+        },
+        "compute": {
+          "type": "string",
+          "enum": [
+            "cpu",
+            "gpu"
+          ],
+          "default": "cpu",
+          "description": "CPU (double precision, the reference) or GPU (WebGPU, single precision; falls back to CPU)"
+        },
+        "storeUrl": {
+          "type": "string",
+          "description": "URL of an nmzarr model store served with HTTP range requests and CORS (required until a default store is published)"
+        }
+      },
+      "artifacts": {
+        "zmap": {
+          "type": "neuro:volume",
+          "mediaType": "application/gzip",
+          "minimum": 1,
+          "maximum": 5
+        }
+      },
+      "engines": [
+        "browser"
+      ]
+    }
+  }
+}

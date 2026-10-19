@@ -1,0 +1,227 @@
+diff --git a/.changeset/normative-dwi.md b/.changeset/normative-dwi.md
+new file mode 100644
+index 00000000..29ec3c19
+--- /dev/null
++++ b/.changeset/normative-dwi.md
+@@ -0,0 +1,5 @@
++---
++"normative-dwi": minor
++---
++
++New app: Normative DWI scores one person's DTI and NODDI maps (FA, MD, ICVF, ISOVF, OD) against voxelwise normative models of the UK Biobank population and writes a z-score map for each, entirely in the browser. It reads PCNtoolkit warped Bayesian linear regression models from an nmzarr (Zarr v3) model store chosen by URL or local folder, checks that each map sits on the UK Biobank 2 mm template grid, and scores with a float64 CPU kernel that reproduces PCNtoolkit to better than 1e-6, or with WebGPU in float32 (within 1e-3, falling back to the CPU). Outputs are NIfTI z-score images on the input grid.
+diff --git a/docs/architecture/offline-executables.md b/docs/architecture/offline-executables.md
+index 10b8c5c4..c1ce9fcf 100644
+--- a/docs/architecture/offline-executables.md
++++ b/docs/architecture/offline-executables.md
+@@ -63,6 +63,7 @@ Paths in this table are relative to the repository root. Existing implementation
+ | `nesvor` | Slice-to-volume MRI reconstruction | `exes/compute-server` runs the pinned CUDA container on Linux with NVIDIA. Its archive includes the browser frontend; Docker, model preparation and real CUDA validation remain separate. |
+ | `dicom2vid` | Volume-to-video conversion | `packages/dicom2vid/bin/dicom2vid.js` runs the app's readers, series selection and frame pipeline from `packages/dicom2vid`, draws frames into buffers and encodes VP9 with libvpx (libav.js WebAssembly) into the app's muxers; `exes/node-cli` packages it for Linux x64, Windows x64 and macOS arm64. Its release check holds frame count, size, timing and key frames to the recorded Chromium videos. WebM frame PSNR compares with both recorded browser frames and rendered source; MP4 frame PSNR compares with rendered source. Windowing, rotation and stretching remain web-only; MP4 is VP9, not H.264. |
+ | `surfannotate` | No default batch equivalent | Manual surface ROI drawing and vertex selection. Excluded from this rollout. |
++| `normative-dwi` | Voxelwise normative z-maps for DTI/NODDI maps | No public batch equivalent yet (PCNtoolkit predict on the same models gives the same z-scores). A Node command line around the app's own `model-store`, `predictor` and `subject-image` modules is straightforward once a public model store exists. |
+ | `zarro` | No default batch equivalent | Interactive OME-Zarr exploration. Conversion or extraction would be a separately scoped command. |
+ | `dicomview` | No default batch equivalent | Interactive DICOM browsing. Its batch steps already ship as command lines: dcm2niix for conversion and dicompare for protocol summaries and checks. |
+ 
+diff --git a/registry/app-information.yml b/registry/app-information.yml
+index f4415674..38beec9b 100644
+--- a/registry/app-information.yml
++++ b/registry/app-information.yml
+@@ -1568,4 +1568,45 @@ apps:
+       - group: Visualization
+         title: NiiVue
+         reference: "NiiVue Contributors. NiiVue: a WebGL2 medical image viewer [Computer software]."
+-        url: https://github.com/niivue/niivue
+\ No newline at end of file
++        url: https://github.com/niivue/niivue
++
++  normative-dwi:
++    about:
++      - A normative model describes how a brain measure varies across a healthy population. This app scores one person's diffusion microstructure maps (FA and MD from DTI; ICVF, ISOVF and OD from NODDI) against voxelwise normative models fitted on UK Biobank, and writes a z-score map for each. The maps must already be registered to the UK Biobank 2 mm template and harmonised to UK Biobank. The models are warped Bayesian linear regressions of age, with sex as a batch effect, fitted with PCNtoolkit.
++    packages:
++      - { name: zarrita, url: https://github.com/manzt/zarrita.js, role: model store reader (Zarr v3) }
++      - { name: fflate, url: https://github.com/101arrowz/fflate, role: NIfTI compression }
++      - { name: NiiVue, url: https://github.com/niivue/niivue, role: image viewer }
++    citations:
++      - group: Normative modelling
++        title: Warped Bayesian linear regression for normative modelling of big data
++        reference: "Fraza CJ, Dinga R, Beckmann CF, Marquand AF. Warped Bayesian linear regression for normative modelling of big data. NeuroImage. 2021;245:118715."
++        doi: 10.1016/j.neuroimage.2021.118715
++      - group: Normative modelling
++        title: The normative modeling framework for computational psychiatry
++        reference: "Rutherford S, Kia SM, Wolfers T, et al. The normative modeling framework for computational psychiatry. Nature Protocols. 2022;17:1711-1734."
++        doi: 10.1038/s41596-022-00696-5
++      - group: Normative modelling
++        title: Sinh-arcsinh distributions
++        reference: "Jones MC, Pewsey A. Sinh-arcsinh distributions. Biometrika. 2009;96(4):761-780."
++        doi: 10.1093/biomet/asp053
++      - group: Diffusion microstructure
++        title: "NODDI: practical in vivo neurite orientation dispersion and density imaging of the human brain"
++        reference: "Zhang H, Schneider T, Wheeler-Kingshott CA, Alexander DC. NODDI: practical in vivo neurite orientation dispersion and density imaging of the human brain. NeuroImage. 2012;61(4):1000-1016."
++        doi: 10.1016/j.neuroimage.2012.03.072
++      - group: Reference population
++        title: Multimodal population brain imaging in the UK Biobank prospective epidemiological study
++        reference: "Miller KL, Alfaro-Almagro F, Bangerter NK, et al. Multimodal population brain imaging in the UK Biobank prospective epidemiological study. Nature Neuroscience. 2016;19:1523-1536."
++        doi: 10.1038/nn.4393
++      - group: Reference population
++        title: Image processing and quality control for the first 10,000 brain imaging datasets from UK Biobank
++        reference: "Alfaro-Almagro F, Jenkinson M, Bangerter NK, et al. Image processing and Quality Control for the first 10,000 brain imaging datasets from UK Biobank. NeuroImage. 2018;166:400-424."
++        doi: 10.1016/j.neuroimage.2017.10.034
++      - group: Harmonisation
++        title: Harmonization of multi-site diffusion tensor imaging data
++        reference: "Fortin JP, Parker D, Tunç B, et al. Harmonization of multi-site diffusion tensor imaging data. NeuroImage. 2017;161:149-170."
++        doi: 10.1016/j.neuroimage.2017.08.047
++      - group: Visualization
++        title: NiiVue
++        reference: "NiiVue Contributors. NiiVue: a WebGL2 medical image viewer [Computer software]."
++        url: https://github.com/niivue/niivue
+diff --git a/registry/apps.yml b/registry/apps.yml
+index 45711dca..79410270 100644
+--- a/registry/apps.yml
++++ b/registry/apps.yml
+@@ -769,3 +769,23 @@ apps:
+       shared_runtime: false
+       browser_test: true
+       release: false
++  - id: normative-dwi
++    path: normative-dwi
++    title: Normative DWI
++    description: Normative z-score maps for DTI and NODDI.
++    categories: [diffusion-imaging]
++    keywords: [normative model, z-score, DTI, NODDI, diffusion, UK Biobank, PCNtoolkit, Zarr]
++    legacy_domain: null
++    runtime: vite-webgpu
++    model_manifest: null
++    asset_manifest_schema: null
++    source: neurodesk/webapps@local
++    license: MIT
++    maintainers: [neurodesk]
++    support_status: experimental
++    shell: imaging-workspace
++    ci:
++      toolchains: [node]
++      shared_runtime: false
++      browser_test: true
++      release: false
+diff --git a/registry/offline-assets.lock.json b/registry/offline-assets.lock.json
+index 2a627176..9029cc76 100644
+--- a/registry/offline-assets.lock.json
++++ b/registry/offline-assets.lock.json
+@@ -4100,6 +4100,7 @@
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.nii.gz",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.bval",
+       "https://huggingface.co/datasets/neurodeskorg/webapps/resolve/4247dd46949521cf9cc21399c6015b41c0ca176f/dwi2trx/fixtures/dwi.bvec"
+-    ]
++    ],
++    "normative-dwi": []
+   }
+ }
+diff --git a/registry/offline-assets.sources.json b/registry/offline-assets.sources.json
+index 91f58eda..6333a44f 100644
+--- a/registry/offline-assets.sources.json
++++ b/registry/offline-assets.sources.json
+@@ -4332,7 +4332,8 @@
+         "bytes": 535,
+         "kind": "example"
+       }
+-    ]
++    ],
++    "normative-dwi": []
+   },
+   "exclusions": [],
+   "python": {
+diff --git a/registry/standalone.json b/registry/standalone.json
+index 06812f50..0c349218 100644
+--- a/registry/standalone.json
++++ b/registry/standalone.json
+@@ -1551,6 +1551,13 @@
+       "assets": [],
+       "downloads": [],
+       "containers": []
++    },
++    "normative-dwi": {
++      "desktop": true,
++      "profile": "interactive",
++      "assets": [],
++      "downloads": [],
++      "containers": []
+     }
+   }
+ }
+diff --git a/scripts/desktop/workflows.mjs b/scripts/desktop/workflows.mjs
+index 8cdcb211..0819406f 100644
+--- a/scripts/desktop/workflows.mjs
++++ b/scripts/desktop/workflows.mjs
+@@ -10,7 +10,7 @@ import { expect } from '@playwright/test';
+ import { verifyMuscleMapFullPipeline, createSyntheticMuscleMapNifti } from '../../test/musclemap-full-pipeline-smoke.mjs';
+ import { startReferenceServer } from '../../test-utils/compute-reference-server.mjs';
+ 
+-export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep', 'noddi', 'degibbs'];
++export const workflowApps = ['nesvor', 'musclemap', 'vesselboost', 'spinalcordtoolbox', 'calmar', 'qsmbly', 'seedseg', 'dicompare', 'deface', 'easy-mp2rage', 'niimath', 'dicom2vid', 'browserqc', 'surfannotate', 'zarro', 'synthsr', 'synthseg', 'syncro', 'dwi2trx', 'edgereg', 'greedy', 'ants', 'brain2print', 'topofit', 'fireants', 'brain-extraction', 'disconnectome', 'carotid-flow', 'white-matter-lesions', 'lcmodel', 'elastix', 'dicomview', 'fastprep', 'noddi', 'degibbs', 'normative-dwi'];
+ 
+ /**
+  * Anything a workflow needs before the desktop app starts. NeSVoR computes on a
+@@ -248,6 +248,28 @@ export async function verifyWorkflow(id, page, { root, resources, desktop, compu
+     assert.ok(result.bytes.length > 1000);
+     return { filename: result.filename, bytes: result.bytes.length };
+   }
++  if (id === 'normative-dwi') {
++    // A generated store (random parameters) and map, through the app's local-folder store input.
++    const { syntheticMap, syntheticModel, writeSyntheticStore } = await import('../../apps/normative-dwi/test/synthetic-store.js');
++    const folder = await mkdtemp(join(tmpdir(), 'offline-nmzarr-'));
++    try {
++      const model = syntheticModel();
++      await writeSyntheticStore(join(folder, 'store'), model);
++      const map = join(folder, 'sub-01_FA.nii');
++      await writeFile(map, syntheticMap(model, 'FA').bytes);
++      await page.locator('#imageInput').setInputFiles(map);
++      await page.locator('#age').fill('66');
++      await page.locator('#sex').selectOption('female');
++      await page.locator('#advancedSettings').evaluate(details => { details.open = true; });
++      await page.locator('#compute').selectOption('cpu');
++      await page.locator('#storeFolder').setInputFiles(join(folder, 'store'));
++      await expect(page.locator('#runButton')).toBeEnabled({ timeout: 60000 });
++      await page.locator('#runButton').click();
++      const button = '#resultList button:has-text("Download") >> nth=0';
++      await expect(page.locator(button)).toBeEnabled({ timeout: 120000 });
++      return nifti(await download(button));
++    } finally { await rm(folder, { recursive: true, force: true }); }
++  }
+   if (id === 'zarro') {
+     const folder = await mkdtemp(join(tmpdir(), 'offline-zarr-'));
+     try {
+diff --git a/scripts/lib/e2e-test-data.mjs b/scripts/lib/e2e-test-data.mjs
+index 823e5265..f1cbfb81 100644
+--- a/scripts/lib/e2e-test-data.mjs
++++ b/scripts/lib/e2e-test-data.mjs
+@@ -135,6 +135,8 @@ export const unpublished = {
+   SCT_E2E_LESION_MS: 'SCT tutorial MS image has no redistribution licence; use a local sct_tutorial_data copy',
+   CAROTID_FLOW_EXAMPLE: "the requesting lab's export, not licensed for release",
+   TOPOFIT_SURFACE_REPLAY: 'OpenRecon validation surfaces, not licensed for release',
++  NMZARR_STORE: 'normative-dwi: the UK Biobank-derived model store is not yet cleared for redistribution; e2e/synthetic.spec.js covers the app with a generated store',
++  NORMATIVE_E2E_DIR: 'normative-dwi: reference z-maps of a real subject (UK Biobank-space maps), not licensed for release',
+ };
+ 
+ // With `cpu`, only the app's CPU subset; for an app without one, nothing.
+diff --git a/test/app-information.test.mjs b/test/app-information.test.mjs
+index 99c1e524..bd722f83 100644
+--- a/test/app-information.test.mjs
++++ b/test/app-information.test.mjs
+@@ -47,6 +47,7 @@ const REQUIRED_METHODS = {
+   edgereg: ['afni.nimh.nih.gov', '10.1016/j.jneumeth.2016.03.001', 'github.com/niivue/niivue'],
+   ants: ['10.1038/s41598-021-87564-6', '10.1016/j.neuroimage.2010.09.025', '10.1016/j.neuroimage.2026.122074', '10.1016/j.jneumeth.2016.03.001'],
+   'carotid-flow': ['10.5281/zenodo.18712355', '10.1177/00359157740676P113', '10.1016/j.jneumeth.2016.03.001', 'github.com/niivue/niivue'],
++  'normative-dwi': ['10.1016/j.neuroimage.2021.118715', '10.1038/s41596-022-00696-5', '10.1093/biomet/asp053', '10.1016/j.neuroimage.2012.03.072', '10.1038/nn.4393', '10.1016/j.neuroimage.2017.10.034', '10.1016/j.neuroimage.2017.08.047', 'github.com/niivue/niivue'],
+   disconnectome: ['10.1038/s41467-022-32595-4', 'github.com/neurolabusc/nii2tvx', 'github.com/niivue/niivue'],
+   lcmodel: ['10.1002/mrm.1910300604', '10.1002/mrm.26091', '10.1002/mrm.25094', '10.1002/mp.12375', '10.1002/(SICI)1099-1492(199810)11:6<266::AID-NBM530>3.0.CO;2-J', '10.1002/nbm.4618', '10.1002/mrm.24391', '10.1002/mrm.20901', '10.1002/jmri.24903', '10.1016/j.jneumeth.2020.108827', '10.1016/j.neuroimage.2026.122074', '10.1002/mrm.29418', '10.1016/j.jneumeth.2016.03.001'],
+   greedy: ['sites.google.com/view/greedyreg/about', 'github.com/pyushkevich/greedy', 'arxiv.org/abs/2506.11860', '10.1016/j.jneumeth.2016.03.001'],
+diff --git a/test/standalone.test.mjs b/test/standalone.test.mjs
+index 100230d6..9f6215fc 100644
+--- a/test/standalone.test.mjs
++++ b/test/standalone.test.mjs
+@@ -80,6 +80,7 @@ const WITHOUT_COMMAND_LINE = {
+   dicomview: 'interactive DICOM browser: dcm2niix and dicompare already ship as command lines',
+   degibbs: 'the degibbs command line follows its app, as noddi\'s does (docs/architecture/dwi-microstructure-design.md)',
+   noddi: 'the noddi command line is the next step of docs/architecture/dwi-microstructure-design.md; the app ships first',
++  'normative-dwi': 'no public batch equivalent yet (PCNtoolkit predict on the same models); a packaged command line waits on a public model store',
+   fastprep: 'exes/fastprep drives separately installed niimath, brainchop, greedy-rs, synthsr, topofit and glm; a bundled release waits on packaging those (TopoFit licence pending)',
+ };
+ 

@@ -1,0 +1,15 @@
+{
+  "name": "normative-model-web",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "link-upstream": "bash tools/link-upstream.sh",
+    "build": "pnpm --filter normative-dwi build",
+    "dev": "pnpm --filter normative-dwi dev",
+    "test": "pnpm --filter normative-dwi test"
+  }
+}
