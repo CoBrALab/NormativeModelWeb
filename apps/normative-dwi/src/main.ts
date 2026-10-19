@@ -51,7 +51,7 @@ limitControl.title = `Colour limit: z-scores of ±|z| and beyond take the colorm
 limitControl.innerHTML = `±|z| <input id="zLimit" class="nd-window-input" type="number" min="${Z_LIMIT_RANGE.min}" max="${Z_LIMIT_RANGE.max}" step="0.5" value="${Z_DISPLAY_LIMIT}" aria-label="Colour limit, |z|" />`;
 const toolbar = createViewerToolbar({
   window: false, overlay: true, colormap: false, download: false, screenshot: false,
-  actions: [limitControl, fromZControl],
+  actions: [fromZControl],
   views: (["multiplanar", "axial", "coronal", "sagittal"] as const).map((id) => ({
     id,
     label: id === "multiplanar" ? "3-Plane" : id[0].toUpperCase() + id.slice(1),
@@ -61,6 +61,8 @@ const toolbar = createViewerToolbar({
 });
 $("viewer").prepend(toolbar);
 // The toolbar scopes its controls' ids; name them for the rest of the app (as SynthSeg does).
+// Order: ±|z|, then the Overlay slider, then From |z| (actions follow the slider).
+toolbar.control("overlayOpacityControl")!.before(limitControl);
 toolbar.control("overlayOpacity")!.id = "overlayOpacity";
 toolbar.control("overlayOpacityValue")!.id = "overlayOpacityValue";
 ($("overlayOpacity") as HTMLInputElement).value = "1";
