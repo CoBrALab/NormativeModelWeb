@@ -47,4 +47,4 @@ Tests that need real data skip without it:
 - `NORMATIVE_E2E_DIR` points at the output of `tools/make_reference_zmap.py`.
 - `NORMATIVE_TEMPLATE_NIFTI` points at a UK Biobank 2 mm template.
 
-`playwright.gpu.config.js` runs the WebGPU path against the fixtures.
+`playwright.gpu.config.js` runs the WebGPU path against PCNtoolkit: on the committed reference always, and on the fixtures when present.

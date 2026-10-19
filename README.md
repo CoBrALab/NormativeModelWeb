@@ -36,7 +36,7 @@ See the [app README](apps/normative-dwi/README.md) for the model store, the code
 | `test/kernel.test.js` | Cubic B-spline basis vs scipy, extrapolation included | 1e-12 | pass |
 | `test/model-store.test.js` | Parameters read from the real store reproduce the fixtures | \|Δz\| < 1e-6 | pass |
 | `test/end-to-end.test.js` | Whole brain: NIfTI in → z-map out vs `tools/make_reference_zmap.py` | rel. < 1e-6, same zero pattern | pass |
-| `e2e/gpu-parity.spec.js` | WebGPU vs PCNtoolkit and vs CPU on the fixtures | 1e-3 | ≤ 1.3e-5 |
+| `e2e/gpu-parity.spec.js` | WebGPU vs PCNtoolkit and vs CPU: the committed simulated reference (always), and the local fixtures | 1e-3 | ≤ 7.8e-6 / ≤ 1.3e-5 |
 | `e2e/synthetic.spec.js` | Whole UI on a generated store, CPU and GPU, downloads vs the float64 kernel | 1e-6 / 1e-3 | 0 / ≤ 2.7e-6 |
 | `e2e/app.spec.js` | Whole UI on a real subject, CPU and GPU, downloads vs reference | 1e-6 / 1e-3 | 0 / ≤ 9.0e-5 |
 
@@ -68,9 +68,9 @@ cd /tmp/webapps-upstream && pnpm test:contracts && pnpm --filter normative-dwi b
 `export-upstream.sh` does three things:
 - copies `apps/normative-dwi` as a real directory, including its docs, tools, README and CHANGELOG, but no local data;
 - applies `upstream/registry.patch`, which carries the registry and app-information entries, the test-list changes (`REQUIRED_METHODS`, `WITHOUT_COMMAND_LINE`), the offline-executables row, the desktop workflow, the e2e test-data entries and the changeset;
-- regenerates `pnpm-lock.yaml`.
+- regenerates `pnpm-lock.yaml`. The patch does not carry the lockfile, because its entries depend on the upstream commit; the regenerated lockfile belongs in the upstream PR.
 
-The upstream pull request is that tree's diff.
+The upstream pull request is that tree's diff, lockfile included.
 
 On upstream `bfadef04` (the current pin), the root contract tests then pass (678/682), except:
 - two that need the app's example (`app-examples` and `agentic-catalog`);

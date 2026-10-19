@@ -4,6 +4,10 @@
   "oracle": "pcntoolkit NormativeModel.compute_zscores on models PCNtoolkit fitted to the simulated data",
   "pcntoolkit": "1.4.0",
   "pcntoolkit_source": "git+https://github.com/gdevenyi/PCNToolkit.git@4219457a92a9313f48482158d329d7ff59edd082",
+  "python": "3.12.4",
+  "numpy": "2.5.3",
+  "scipy": "1.18.1",
+  "lock": "apps/normative-dwi/tools/requirements-lock.txt",
   "seed": 20261019,
   "command": "python -I apps/normative-dwi/tools/make_synthetic_reference.py"
  },

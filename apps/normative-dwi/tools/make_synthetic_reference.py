@@ -15,14 +15,25 @@ column and the be_map is swapped, as in about 7.5% of real FA voxels.
 Ages outside the training range are clamped before scoring, as the browser
 does (see make_fixtures.py); the cases include clamped ages and |ys| up to 10.
 
-Usage (reference env: /scratch/parent41/voxel_nm/.venv_pcnGabe):
+Regenerating changes the numbers. The simulated data are reproducible from the
+seed, but the L-BFGS-B fit is not: in another environment (other numpy, scipy
+or BLAS builds) it lands on different m, A_triu and hyp, so z differs too. That
+does not weaken the test, which checks the kernel against PCNtoolkit's z for
+the committed parameters, whatever they are. The JSON records the versions it
+was made with; requirements-lock.txt pins that environment, in which a rerun
+reproduces the committed file exactly.
+
+Usage (reference env: /scratch/parent41/voxel_nm/.venv_pcnGabe, or
+requirements-lock.txt), from the repository root:
   python -I apps/normative-dwi/tools/make_synthetic_reference.py
 """
 
 import argparse
 import importlib.metadata
 import json
+import platform
 import shutil
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -30,10 +41,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from make_fixtures import oracle_z
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))  # python -I leaves the script's folder off sys.path
+from make_fixtures import oracle_z  # noqa: E402
 
 warnings.filterwarnings("ignore")
-HERE = Path(__file__).resolve().parent
 SEXES = ["0", "1"]
 LEVEL_COLUMNS = ["Sex=0", "Sex=1"]
 
@@ -138,6 +150,10 @@ def main():
             "oracle": "pcntoolkit NormativeModel.compute_zscores on models PCNtoolkit fitted to the simulated data",
             "pcntoolkit": importlib.metadata.version("pcntoolkit"),
             "pcntoolkit_source": "git+https://github.com/gdevenyi/PCNToolkit.git@4219457a92a9313f48482158d329d7ff59edd082",
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "scipy": importlib.metadata.version("scipy"),
+            "lock": "apps/normative-dwi/tools/requirements-lock.txt",
             "seed": args.seed,
             "command": "python -I apps/normative-dwi/tools/make_synthetic_reference.py",
         },

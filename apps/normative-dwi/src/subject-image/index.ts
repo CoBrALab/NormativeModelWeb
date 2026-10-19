@@ -108,12 +108,14 @@ export function gridMapping(map: Pick<SubjectMap, "name" | "header">, grid: Grid
 
 /**
  * The map voxel containing world position `mm`: its flat index in the map's
- * own (file) order and its centre in mm, or null outside the image. Viewers
- * report positions in world space; their voxel indices may be reoriented
- * (NiiVue's are RAS), so the map is indexed from mm.
+ * own (file) order and its centre in world units, or null outside the image.
+ * Viewers report positions in world space; their voxel indices may be
+ * reoriented (NiiVue's are RAS), so the map is indexed from the position.
+ * NiiVue's positions come from the raw affine (it ignores xyzt_units), so this
+ * inverts the raw affine too, not the millimetre one gridMapping uses.
  */
 export function voxelAtMm(header: NiftiHeader): (mm: ArrayLike<number>) => { index: number; centre: number[] } | null {
-  const toMm = affineMm(header);
+  const toMm = header.affine.slice(0, 3).map((row) => [0, 1, 2, 3].map((c) => row[c]));
   const toVoxel = invert4(toMm);
   const dims = [header.nx, header.ny, header.nz];
   return (mm) => {

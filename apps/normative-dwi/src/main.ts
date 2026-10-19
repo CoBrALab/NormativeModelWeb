@@ -168,10 +168,10 @@ function resetOutputs() {
   results.render({});
 }
 
-/** Read maps and add them to the list; a newer map of a marker replaces the older one. Returns the maps read. */
 /** Bumped by clearMaps: a load that started before a clear must not add to the new list. */
 let loadGeneration = 0;
 
+/** Read maps and add them to the list; a newer map of a marker replaces the older one. Returns the maps read. */
 async function loadMaps(files: File[], signal?: AbortSignal): Promise<InputMap[]> {
   if (running) throw new Error("Wait for the current run to finish, or cancel it.");
   const generation = loadGeneration;
@@ -415,7 +415,6 @@ const exampleControl = createExampleSelector({
     assertCurrent();
     clearMaps();
     const loaded = await loadMaps(files, signal);
-    reportFiles();
     if (!loaded.some((i) => i.marker)) throw new Error("The example has no usable maps");
   },
 });
@@ -437,7 +436,6 @@ registerAppAutomation({
       }
       clearMaps();
       await loadMaps(given.maps as File[], signal);
-      reportFiles();
       const unnamed = inputs.filter((i) => !i.marker).map((i) => i.file.name);
       if (unnamed.length) throw new Error(`Cannot tell the marker of ${unnamed.join(", ")} from its name`);
       const compute = parameters.compute === "gpu" ? "gpu" : "cpu";

@@ -20,6 +20,7 @@ The Cholesky factor of each voxel's precision A is computed on the CPU in float6
 
 | Check | CPU vs reference | GPU vs reference |
 |---|---|---|
+| Committed simulated reference, 144 cases vs PCNtoolkit (`test/kernel.test.js`, `e2e/gpu-parity.spec.js`; no local data needed) | ≤ 2.2e-14 | ≤ 7.8e-6 (relative) |
 | Fixtures, 12,600 cases vs PCNtoolkit incl. cond(A) up to 1.1e8 and \|ys\| up to 12 (`e2e/gpu-parity.spec.js`) | ≤ 1.5e-13 | ≤ 1.3e-5 (relative) |
 | Whole brain, real subject, 5 markers (`e2e/app.spec.js`) | bit-identical | ≤ 9.0e-5 (FA; others ≤ 5.3e-5) |
 | Generated store, 3 markers (`e2e/synthetic.spec.js`, runs in CI) | bit-identical | ≤ 2.7e-6 |

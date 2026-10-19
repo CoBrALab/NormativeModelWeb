@@ -2,8 +2,9 @@ import { defineConfig } from "@playwright/test";
 import { gpuBrowser } from "../../test-utils/hardware-gpu.mjs";
 
 // Predictor parity in a real browser: imports src/ modules from the Vite dev
-// server and runs the WebGPU adapter against the local PCNtoolkit fixtures
-// (SwiftShader by default; a real GPU with NEURODESK_HARDWARE_GPU=1).
+// server and runs the WebGPU adapter against the committed PCNtoolkit reference
+// and, when present, the local fixtures (SwiftShader by default; a real GPU
+// with NEURODESK_HARDWARE_GPU=1).
 export default defineConfig({
   testDir: "./e2e",
   testMatch: /gpu-parity\.spec\.js/,

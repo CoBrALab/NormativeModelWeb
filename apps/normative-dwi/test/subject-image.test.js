@@ -55,6 +55,20 @@ test("an affine in metres (xyzt_units) is read in millimetres", async () => {
   assertGathersWorld(await loadSubjectMap("metres.nii", bytes));
 });
 
+test("the readout locates voxels in the raw affine's units, as NiiVue reports them", async () => {
+  const { voxelAtMm } = await import("../src/subject-image/index.ts");
+  const metres = xFirst.affine.map((row, r) => (r < 3 ? row.map((v) => v / 1000) : row));
+  const bytes = worldCodedNifti(xFirst.dims, xFirst.affine);
+  const view = new DataView(bytes.buffer);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) view.setFloat32(280 + 16 * r + 4 * c, metres[r][c], true);
+  view.setUint8(123, 1); // NIFTI_UNITS_METER
+  const map = await loadSubjectMap("metres.nii", bytes);
+  const locate = voxelAtMm(map.header);
+  const [i, j, k] = [3, 1, 2];
+  const world = [0, 1, 2].map((r) => metres[r][0] * i + metres[r][1] * j + metres[r][2] * k + metres[r][3]);
+  assert.equal(locate(world)?.index, i + xFirst.dims[0] * (j + xFirst.dims[1] * k));
+});
+
 test("a file that is not NIfTI-1 is refused", async () => {
   await assert.rejects(loadSubjectMap("notes.txt", new TextEncoder().encode("x".repeat(400))), /notes\.txt: not a NIfTI-1 image/);
 });
